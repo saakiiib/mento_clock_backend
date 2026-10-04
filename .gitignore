@@ -33,3 +33,12 @@ bootstrap/cache/*.php
 !storage/framework/views/.gitignore
 !storage/logs/.gitignore
 !bootstrap/cache/.gitignore
+# Keep required folder structure in git (Laravel needs these dirs to exist)
+!storage/app/private/.gitkeep
+!storage/app/public/.gitkeep
+!storage/framework/cache/data/.gitkeep
+!storage/framework/sessions/.gitkeep
+!storage/framework/testing/.gitkeep
+!storage/framework/views/.gitkeep
+!storage/logs/.gitkeep
+!bootstrap/cache/.gitkeep

@@ -5,20 +5,27 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 class ClockController {
  public function login(Request $r) {
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
   $u=User::where('email',$v['email'])->first();
   abort_unless($u && Hash::check($v['password'],$u->password) && $u->active,401,'Invalid credentials or inactive account.');
   $b=DB::table('businesses')->where('id',$u->business_id)->where('active',true)->first();abort_unless($b,403,'Business is inactive.');
-  $token=Str::random(64);DB::table('api_tokens')->insert(['user_id'=>$u->id,'token_hash'=>hash('sha256',$token),'expires_at'=>now()->addDays(30),'created_at'=>now(),'updated_at'=>now()]);
-  $branches=DB::table('branches')->join('employee_branches','branches.id','=','employee_branches.branch_id')->where('employee_branches.user_id',$u->id)->where('branches.business_id',$u->business_id)->where('branches.active',true)->select('branches.id','branches.name','branches.address')->get();
-  return response()->json(['token'=>$token,'user'=>['name'=>$u->name,'email'=>$u->email,'business_name'=>$b->name,'branches'=>$branches]]);
+  $token=$u->createToken('mentoclock-mobile',['attendance'],now()->addDays(30))->plainTextToken;
+  return response()->json(['token'=>$token,'user'=>$this->account($u)]);
  }
- public function logout(Request $r){DB::table('api_tokens')->where('id',$r->attributes->get('mento_token_id'))->delete();return response()->json(['message'=>'Signed out.']);}
+ private function account(User $u): array {
+  $b=DB::table('businesses')->find($u->business_id);
+  $branches=DB::table('branches')->join('employee_branches','branches.id','=','employee_branches.branch_id')->where('employee_branches.user_id',$u->id)->where('branches.business_id',$u->business_id)->where('branches.active',true)->select('branches.id','branches.name','branches.address')->get();
+  return ['id'=>$u->id,'name'=>$u->name,'email'=>$u->email,'phone'=>$u->phone,'employee_code'=>$u->employee_code,'role'=>$u->role,'business_name'=>$b->name,'timezone'=>$b->timezone,'branches'=>$branches];
+ }
+ public function me(Request $r){return response()->json(['user'=>$this->account($r->user())]);}
+ public function profile(Request $r){
+  $v=$r->validate(['phone'=>'nullable|string|max:40']);$r->user()->update($v);return $this->me($r);
+ }
+ public function logout(Request $r){$r->user()->currentAccessToken()?->delete();return response()->json(['message'=>'Signed out.']);}
  public function history(Request $r){
-  $rows=DB::table('attendance_records')->where('business_id',$r->user()->business_id)->where('user_id',$r->user()->id)->orderByDesc('clock_in')->get();
+  $rows=DB::table('attendance_records')->where('business_id',$r->user()->business_id)->where('user_id',$r->user()->id)->where(function($q){$q->where('clock_in','>=',now()->subDays(93))->orWhereNull('clock_out');})->orderByDesc('clock_in')->get();
   return response()->json(['data'=>$rows->map(function($a){$b=DB::table('branches')->where('id',$a->branch_id)->where('business_id',$a->business_id)->first();return ['id'=>(string)$a->id,'branch'=>['id'=>$b->id,'name'=>$b->name,'address'=>$b->address],'clock_in'=>Carbon::parse($a->clock_in,'UTC')->toIso8601String(),'clock_out'=>$a->clock_out ? Carbon::parse($a->clock_out,'UTC')->toIso8601String():null];})]);
  }
  private function location(Request $r,$branch): array {

@@ -1,0 +1,1 @@
+<p>Your MentoClock attendance report for <strong>{{$report['business']}}</strong> is attached.</p><p>Period: {{$report['start']}} to {{$report['end']}} ({{$report['timezone']}})<br>Total hours: {{number_format($report['total_hours'],2)}}</p><p>The email includes PDF and CSV copies.</p>

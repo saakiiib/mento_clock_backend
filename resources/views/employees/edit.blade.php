@@ -1,0 +1,4 @@
+@extends('layout')
+@section('content')
+<a href="/">← Back to dashboard</a><h1>Edit employee</h1><p>Update account details and workplaces. Saved changes sign this employee out of the mobile app.</p><div class="card" style="max-width:680px"><form method="post" action="/employees/{{$employee->id}}/edit">@csrf<label>Name</label><input name="name" value="{{$employee->name}}" required><label>Work email</label><input name="email" type="email" value="{{$employee->email}}" required><label>Phone</label><input name="phone" value="{{$employee->phone}}"><label>Employee reference</label><input name="employee_code" value="{{$employee->employee_code}}"><label>Assigned workplaces</label><div class="checks">@foreach($branches as $b)<label><input type="checkbox" name="branches[]" value="{{$b->id}}" @checked(in_array($b->id,$assigned))>{{$b->name}}</label>@endforeach</div><button style="margin-top:24px">Save employee</button></form></div>
+@endsection

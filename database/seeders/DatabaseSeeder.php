@@ -9,19 +9,23 @@ use Illuminate\Support\Facades\DB;
 class DatabaseSeeder extends Seeder
 {
     /**
-     * Seed a fresh database with the first business
-     * and its administrator account.
+     * Seed the database with everything needed to log in:
+     * one business, one admin (web console) and one employee
+     * assigned to a branch (mobile app).
      *
-     * Credentials come from the environment (no defaults):
-     *   MENTO_SETUP_EMAIL     - admin email (default: admin@example.test)
-     *   MENTO_SETUP_PASSWORD  - admin password, 12+ characters (required)
+     * Safe to run anywhere: it only adds rows and stops if
+     * either email already exists.
+     *
+     * One password for both accounts (12+ characters, no default):
+     *   MENTO_SETUP_EMAIL      - admin email    (default: admin@example.test)
+     *   MENTO_EMPLOYEE_EMAIL   - employee email (default: employee@example.test)
+     *   MENTO_SETUP_PASSWORD   - password for both (required)
      */
     public function run(): void
     {
-        $this->ensureLocalEnvironment();
-
-        $email = getenv('MENTO_SETUP_EMAIL') ?: 'admin@example.test';
-        $password = getenv('MENTO_SETUP_PASSWORD');
+        $adminEmail = env('MENTO_SETUP_EMAIL', 'admin@example.test');
+        $employeeEmail = env('MENTO_EMPLOYEE_EMAIL', 'employee@example.test');
+        $password = env('MENTO_SETUP_PASSWORD');
 
         if (! $password || strlen($password) < 12) {
             throw new \RuntimeException(
@@ -29,9 +33,12 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        DB::transaction(function () use ($email, $password) {
-            if (User::where('email', $email)->exists()) {
-                throw new \RuntimeException('Account already exists.');
+        DB::transaction(function () use ($adminEmail, $employeeEmail, $password) {
+            if (User::where('email', $adminEmail)->exists()) {
+                throw new \RuntimeException("Account {$adminEmail} already exists.");
+            }
+            if (User::where('email', $employeeEmail)->exists()) {
+                throw new \RuntimeException("Account {$employeeEmail} already exists.");
             }
 
             $businessId = DB::table('businesses')->insertGetId([
@@ -45,22 +52,41 @@ class DatabaseSeeder extends Seeder
             User::create([
                 'business_id' => $businessId,
                 'name' => 'Business Administrator',
-                'email' => $email,
+                'email' => $adminEmail,
                 'password' => $password,
                 'role' => 'admin',
                 'active' => true,
             ]);
-        });
-    }
 
-    /**
-     * Refuse to seed anything but a local/test database,
-     * so production data can never be touched by accident.
-     */
-    private function ensureLocalEnvironment(): void
-    {
-        if (! app()->environment('local', 'testing')) {
-            throw new \RuntimeException('Seed only a local/test environment.');
-        }
+            $branchId = DB::table('branches')->insertGetId([
+                'business_id' => $businessId,
+                'name' => 'Main Branch',
+                'address' => 'Seeded branch - update the real address and GPS in the console',
+                'latitude' => 51.5074,
+                'longitude' => -0.1278,
+                'radius_m' => 100,
+                'active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $employeeId = User::create([
+                'business_id' => $businessId,
+                'name' => 'Demo Employee',
+                'email' => $employeeEmail,
+                'password' => $password,
+                'role' => 'employee',
+                'active' => true,
+            ])->id;
+
+            DB::table('employee_branches')->insert([
+                'business_id' => $businessId,
+                'user_id' => $employeeId,
+                'branch_id' => $branchId,
+            ]);
+
+            $this->command->info("Admin (console): {$adminEmail}");
+            $this->command->info("Employee (app):  {$employeeEmail}");
+        });
     }
 }

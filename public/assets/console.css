@@ -11,3 +11,4 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 .story-main h1{font-size:clamp(24px,2.5vw,38px);white-space:nowrap;letter-spacing:-1.3px}
+.check-row{display:flex;align-items:center;gap:10px}.check-row input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--orange)}

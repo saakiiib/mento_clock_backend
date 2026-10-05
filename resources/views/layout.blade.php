@@ -5,6 +5,7 @@ $workspaceName = $platform ? 'Mento Software' : (DB::table('businesses')->where(
 $links = $platform ? [
  ['/platform','home','Platform overview',request()->is('platform')],
  ['/platform','building','Clients',request()->is('platform/clients*')],
+ ['/platform/website','report','Website content',request()->is('platform/website*')],
  ['/platform/security','shield','Account security',request()->is('platform/security')],
 ] : [
  ['/','home','Overview',request()->is('/')],

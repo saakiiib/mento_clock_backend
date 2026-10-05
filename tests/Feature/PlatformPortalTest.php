@@ -137,6 +137,6 @@ class PlatformPortalTest extends TestCase
     {
         $this->platform();
         $this->get('/')->assertRedirect('/login');
-        $this->postJson('/api/v1/auth/login',['email'=>'operator@example.test','password'=>'platform-password-123'])->assertUnauthorized();
+        $this->postJson('/api/auth/login',['email'=>'operator@example.test','password'=>'platform-password-123'])->assertUnauthorized();
     }
 }

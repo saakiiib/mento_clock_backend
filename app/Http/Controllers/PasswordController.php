@@ -15,7 +15,7 @@ class PasswordController {
  }
  public function form(Request $r,string $token){return view('auth.reset',['token'=>$token,'email'=>$r->query('email','')]);}
  public function reset(Request $r){
-  $v=$r->validate(['token'=>'required|string','email'=>'required|email','password'=>'required|string|min:12|max:100|confirmed']);
+   $v=$r->validate(['token'=>'required|string','email'=>'required|email','password'=>'required|string|min:6|max:100|confirmed']);
   $status=Password::reset($v,function(User $u,string $password){
    DB::transaction(function()use($u,$password){$u->forceFill(['password'=>$password,'remember_token'=>Str::random(60)])->save();$u->tokens()->delete();DB::table('sessions')->where('user_id',$u->id)->delete();});
   });

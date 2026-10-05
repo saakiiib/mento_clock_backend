@@ -42,7 +42,7 @@ class AdminController {
   DB::table('branches')->insert([...$v,'business_id'=>$id,'active'=>true,'created_at'=>now(),'updated_at'=>now()]);return back()->with('status','Branch created.');
  }
  public function employee(Request $r){
-  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','email'=>'required|email|max:255|unique:users,email|unique:platform_admins,email','password'=>'required|string|min:12|max:100','branches'=>'required|array|min:1','branches.*'=>['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)]]);
+  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','email'=>'required|email|max:255|unique:users,email|unique:platform_admins,email','password'=>'required|string|min:6|max:100','branches'=>'required|array|min:1','branches.*'=>['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)]]);
   DB::transaction(function()use($id,$v){$u=User::create(['name'=>$v['name'],'email'=>$v['email'],'password'=>$v['password'],'business_id'=>$id,'role'=>'employee','active'=>true]);foreach(array_unique($v['branches']) as $b) DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);});return back()->with('status','Employee created. Share their login credentials securely.');
  }
  public function editEmployee(Request $r,$id){

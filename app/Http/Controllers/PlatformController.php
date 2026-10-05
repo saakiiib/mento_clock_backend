@@ -8,11 +8,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\{Auth, DB, Hash};
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class PlatformController
 {
-    private const PROFILE = ['contact_name', 'contact_email', 'contact_phone', 'address', 'website', 'plan_label', 'notes'];
+    private const PROFILE = ['contact_name', 'contact_email', 'contact_phone', 'address', 'website', 'plan_label', 'notes', 'branch_limit', 'employees_per_branch_limit'];
 
     public function index(Request $request)
     {
@@ -23,9 +24,9 @@ class PlatformController
             $query->where(fn ($q) => $q->where('b.name', 'like', '%'.$needle.'%')->orWhere('p.contact_email', 'like', '%'.$needle.'%'));
         }
         if (!empty($filters['status'])) $query->where('b.active', $filters['status'] === 'active');
-        $clients = $query->select('b.*', 'p.contact_name', 'p.contact_email', 'p.plan_label')
+        $clients = $query->select('b.*', 'p.contact_name', 'p.contact_email', 'p.plan_label', 'p.branch_limit')
             ->selectSub(DB::table('users')->selectRaw('COUNT(*)')->whereColumn('business_id', 'b.id')->where('role', 'employee'), 'employees_count')
-            ->selectSub(DB::table('branches')->selectRaw('COUNT(*)')->whereColumn('business_id', 'b.id'), 'branches_count')
+            ->selectSub(DB::table('branches')->selectRaw('COUNT(*)')->whereColumn('business_id', 'b.id')->where('active', true), 'branches_count')
             ->orderByDesc('b.id')->paginate(12)->withQueryString();
         $stats = [
             'clients' => DB::table('businesses')->count(),
@@ -48,7 +49,8 @@ class PlatformController
         return ['name' => 'required|string|max:100', 'timezone' => 'required|timezone',
             'contact_name' => 'nullable|string|max:100', 'contact_email' => 'nullable|email|max:255',
             'contact_phone' => 'nullable|string|max:40', 'address' => 'nullable|string|max:500',
-            'website' => 'nullable|url:https|max:255', 'plan_label' => 'nullable|string|max:100', 'notes' => 'nullable|string|max:3000'];
+            'website' => 'nullable|url:https|max:255', 'plan_label' => 'nullable|string|max:100', 'notes' => 'nullable|string|max:3000',
+            'branch_limit' => 'required|integer|min:1|max:500', 'employees_per_branch_limit' => 'required|integer|min:1|max:500'];
     }
 
     private function passwordRules(bool $required = true): array
@@ -84,13 +86,18 @@ class PlatformController
         $business = DB::table('businesses')->where('id', $id)->firstOrFail();
         $profile = DB::table('client_profiles')->where('business_id', $id)->first();
         $admins = User::where('business_id', $id)->where('role', 'admin')->orderBy('name')->get();
+        $branches = DB::table('branches as b')->where('b.business_id', $id)->orderBy('b.name')->get()->map(function ($branch) use ($id) {
+            $branch->active_employee_count = DB::table('employee_branches as eb')->join('users as u', 'u.id', '=', 'eb.user_id')
+                ->where('eb.business_id', $id)->where('eb.branch_id', $branch->id)->where('u.role', 'employee')->where('u.active', true)->count();
+            return $branch;
+        });
         $stats = ['people' => User::where('business_id', $id)->where('role', 'employee')->count(),
             'workplaces' => DB::table('branches')->where('business_id', $id)->count(),
             'working' => DB::table('attendance_records')->where('business_id', $id)->whereNull('clock_out')->count(),
             'records' => DB::table('attendance_records')->where('business_id', $id)->count()];
         $activity = DB::table('platform_audit_logs as l')->join('platform_admins as a', 'a.id', '=', 'l.actor_id')
             ->where('l.business_id', $id)->select('l.*', 'a.name as actor')->orderByDesc('l.id')->limit(12)->get();
-        return view('platform.show', compact('business', 'profile', 'admins', 'stats', 'activity'));
+        return view('platform.show', compact('business', 'profile', 'admins', 'branches', 'stats', 'activity'));
     }
 
     public function update(Request $request, int $id)
@@ -98,11 +105,42 @@ class PlatformController
         DB::table('businesses')->where('id', $id)->firstOrFail();
         $values = $request->validate($this->profileRules());
         DB::transaction(function () use ($values, $id) {
+            DB::table('businesses')->where('id', $id)->lockForUpdate()->firstOrFail();
+            $activeBranches = DB::table('branches')->where('business_id', $id)->where('active', true)->count();
+            if ((int) $values['branch_limit'] < $activeBranches) {
+                throw ValidationException::withMessages(['branch_limit' => "The branch limit cannot be lower than the {$activeBranches} active workplaces already in use."]);
+            }
             DB::table('businesses')->where('id', $id)->update(['name' => $values['name'], 'timezone' => $values['timezone'], 'updated_at' => now()]);
             DB::table('client_profiles')->updateOrInsert(['business_id' => $id], [...Arr::only($values, self::PROFILE), 'updated_at' => now()]);
             $this->audit($id, 'Client profile updated', ['fields' => array_keys($values)]);
         });
         return back()->with('status', 'Client profile saved.');
+    }
+
+    public function branchCapacity(Request $request, int $id, int $branchId)
+    {
+        DB::table('businesses')->where('id', $id)->firstOrFail();
+        $branch = DB::table('branches')->where('business_id', $id)->where('id', $branchId)->firstOrFail();
+        $values = $request->validate(['employee_limit' => 'nullable|integer|min:1|max:500']);
+        DB::transaction(function () use ($request, $id, $branchId, $branch, $values) {
+            DB::table('businesses')->where('id', $id)->lockForUpdate()->firstOrFail();
+            DB::table('branches')->where('business_id', $id)->where('id', $branchId)->lockForUpdate()->firstOrFail();
+            $current = $this->capacityForBranch($id, $branchId);
+            $limit = $values['employee_limit'] ?? null;
+            $newLimit = $limit ?: (int) DB::table('client_profiles')->where('business_id', $id)->value('employees_per_branch_limit');
+            if ($newLimit < $current) {
+                throw ValidationException::withMessages(['employee_limit' => 'The limit cannot be lower than the number of active employees assigned to this workplace.']);
+            }
+            DB::table('branches')->where('business_id', $id)->where('id', $branchId)->update(['employee_limit' => $limit, 'updated_at' => now('UTC')]);
+            $this->audit($id, 'Branch employee limit updated', ['branch_id' => $branchId, 'branch' => $branch->name, 'employee_limit' => $limit]);
+        });
+        return back()->with('status', 'Branch employee limit saved.');
+    }
+
+    private function capacityForBranch(int $businessId, int $branchId): int
+    {
+        return DB::table('employee_branches as eb')->join('users as u', 'u.id', '=', 'eb.user_id')
+            ->where('eb.business_id', $businessId)->where('eb.branch_id', $branchId)->where('u.role', 'employee')->where('u.active', true)->count();
     }
 
     public function status(Request $request, int $id)

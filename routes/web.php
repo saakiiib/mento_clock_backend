@@ -25,6 +25,7 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::post('/clients',[PlatformController::class,'store']);
  Route::get('/clients/{id}',[PlatformController::class,'show'])->whereNumber('id');
  Route::post('/clients/{id}',[PlatformController::class,'update'])->whereNumber('id');
+ Route::post('/clients/{id}/branches/{branchId}/capacity',[PlatformController::class,'branchCapacity'])->whereNumber('id')->whereNumber('branchId');
  Route::post('/clients/{id}/status',[PlatformController::class,'status'])->whereNumber('id');
  Route::post('/clients/{id}/admins',[PlatformController::class,'addAdmin'])->whereNumber('id');
  Route::post('/clients/{id}/admins/{userId}',[PlatformController::class,'updateAdmin'])->whereNumber('id')->whereNumber('userId');

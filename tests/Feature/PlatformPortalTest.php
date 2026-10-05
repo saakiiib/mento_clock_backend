@@ -28,7 +28,7 @@ class PlatformPortalTest extends TestCase
 
     private function profile(): array
     {
-        return ['name'=>'New Business','timezone'=>'Europe/London','contact_name'=>'Client Contact','contact_email'=>'contact@example.test','contact_phone'=>'07700900123','address'=>'Test address','website'=>'https://example.com','plan_label'=>'Multiple workplaces','notes'=>'Internal note only'];
+        return ['name'=>'New Business','timezone'=>'Europe/London','branch_limit'=>3,'employees_per_branch_limit'=>8,'contact_name'=>'Client Contact','contact_email'=>'contact@example.test','contact_phone'=>'07700900123','address'=>'Test address','website'=>'https://example.com','plan_label'=>'Multiple workplaces','notes'=>'Internal note only'];
     }
 
     public function test_guest_and_client_cannot_access_platform_management(): void
@@ -59,6 +59,7 @@ class PlatformPortalTest extends TestCase
         $this->post('/platform/clients',$this->profile()+['admin_name'=>'Client Admin','admin_email'=>'clientadmin@example.test','password'=>'client-password-123','password_confirmation'=>'client-password-123'])->assertRedirect();
         $business = DB::table('businesses')->where('name','New Business')->first();
         $this->assertDatabaseHas('client_profiles',['business_id'=>$business->id,'plan_label'=>'Multiple workplaces']);
+        $this->assertDatabaseHas('client_profiles',['business_id'=>$business->id,'branch_limit'=>3,'employees_per_branch_limit'=>8]);
         $user = User::where('email','clientadmin@example.test')->firstOrFail();
         $this->assertSame('admin',$user->role);
         $this->assertSame($business->id,$user->business_id);
@@ -84,6 +85,15 @@ class PlatformPortalTest extends TestCase
         Auth::guard('platform')->logout();
         $this->actingAs($client,'web')->get('/company')->assertOk()->assertSee('Client Contact')->assertDontSee('Internal note only');
         foreach(['/','/people','/workplaces','/attendance','/reports']as $url)$this->get($url)->assertOk();
+    }
+
+    public function test_super_admin_cannot_lower_branch_limit_below_existing_active_branches(): void
+    {
+        $client=$this->client();
+        DB::table('client_profiles')->insert(['business_id'=>$client->business_id,'branch_limit'=>2,'employees_per_branch_limit'=>10,'created_at'=>now(),'updated_at'=>now()]);
+        foreach (['North','South'] as $name) DB::table('branches')->insert(['business_id'=>$client->business_id,'name'=>$name,'address'=>'Test','latitude'=>52,'longitude'=>-1,'radius_m'=>100,'active'=>true]);
+        $this->platform();
+        $this->post('/platform/clients/'.$client->business_id,array_merge($this->profile(),['branch_limit'=>1]))->assertSessionHasErrors('branch_limit');
     }
 
     public function test_suspension_revokes_mobile_access_and_preserves_client_records(): void

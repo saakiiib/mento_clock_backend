@@ -1,12 +1,14 @@
 <?php
 namespace App\Http\Controllers;
 use App\Models\User;
+use App\Services\BusinessCapacity;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 class AdminController {
+ public function __construct(private BusinessCapacity $capacity) {}
  public function login(Request $r){
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
   if(Auth::guard('web')->attempt([...$v,'active'=>true,'role'=>'admin'])){
@@ -25,7 +27,7 @@ class AdminController {
  public function index(Request $r){
   $id=$this->business($r);
   $business=DB::table('businesses')->find($id);
-  $branches=DB::table('branches')->where('business_id',$id)->get();
+  $branches=DB::table('branches')->where('business_id',$id)->get()->map(function($branch)use($id){$branch->employee_count=$this->capacity->activeEmployeeCount($id,(int)$branch->id);$branch->employee_limit=$this->capacity->employeeLimit($id,(int)$branch->id);return $branch;});
   $employees=User::where('business_id',$id)->get();
   $records=DB::table('attendance_records as a')->join('users as u','u.id','=','a.user_id')->join('branches as b','b.id','=','a.branch_id')->where('a.business_id',$id)->orderByDesc('a.clock_in')->select('a.*','u.name as employee','b.name as branch')->limit(200)->get();
   $section=in_array($r->path(),['people','workplaces','attendance','company'])?$r->path():'overview';
@@ -39,20 +41,21 @@ class AdminController {
  }
  public function branch(Request $r){
   $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000']);
-  DB::table('branches')->insert([...$v,'business_id'=>$id,'active'=>true,'created_at'=>now(),'updated_at'=>now()]);return back()->with('status','Branch created.');
+  DB::transaction(function()use($id,$v){DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureBranchSlot($id);DB::table('branches')->insert([...$v,'business_id'=>$id,'active'=>true,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);});return back()->with('status','Branch created.');
  }
  public function employee(Request $r){
-  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','email'=>'required|email|max:255|unique:users,email|unique:platform_admins,email','password'=>'required|string|min:6|max:100','branches'=>'required|array|min:1','branches.*'=>['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)]]);
-  DB::transaction(function()use($id,$v){$u=User::create(['name'=>$v['name'],'email'=>$v['email'],'password'=>$v['password'],'business_id'=>$id,'role'=>'employee','active'=>true]);foreach(array_unique($v['branches']) as $b) DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);});return back()->with('status','Employee created. Share their login credentials securely.');
+  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','email'=>'required|email|max:255|unique:users,email|unique:platform_admins,email','password'=>'required|string|min:8|max:100','phone'=>'nullable|string|max:40','employee_code'=>'nullable|string|max:40','job_title'=>'nullable|string|max:100','employment_start_date'=>'nullable|date_format:Y-m-d','emergency_contact_name'=>'nullable|string|max:100','emergency_contact_phone'=>'nullable|string|max:40','branches'=>'required|array|min:1','branches.*'=>['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)]]);
+  DB::transaction(function()use($id,$v){DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$v['branches']);$u=User::create(collect($v)->except('branches')->merge(['business_id'=>$id,'role'=>'employee','active'=>true])->all());foreach(array_unique($v['branches']) as $b) DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);});return back()->with('status','Employee created. Share their login credentials securely.');
  }
  public function editEmployee(Request $r,$id){
   $business=$this->business($r);$employee=User::where('business_id',$business)->findOrFail($id);
-  return view('employees.edit',['employee'=>$employee,'branches'=>DB::table('branches')->where('business_id',$business)->where('active',true)->get(),'assigned'=>DB::table('employee_branches')->where('user_id',$employee->id)->pluck('branch_id')->all()]);
+  $branches=DB::table('branches')->where('business_id',$business)->where('active',true)->get()->map(function($branch)use($business){$branch->employee_count=$this->capacity->activeEmployeeCount($business,(int)$branch->id);$branch->employee_limit=$this->capacity->employeeLimit($business,(int)$branch->id);return $branch;});
+  return view('employees.edit',['employee'=>$employee,'branches'=>$branches,'assigned'=>DB::table('employee_branches')->where('user_id',$employee->id)->pluck('branch_id')->all()]);
  }
  public function updateEmployee(Request $r,$id){
   $business=$this->business($r);$employee=User::where('business_id',$business)->findOrFail($id);
-  $v=$r->validate(['name'=>'required|string|max:100','email'=>['required','email','max:255',Rule::unique('users','email')->ignore($employee->id),Rule::unique('platform_admins','email')],'phone'=>'nullable|string|max:40','employee_code'=>'nullable|string|max:40','branches'=>'required|array|min:1','branches.*'=>['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)]]);
-  DB::transaction(function()use($employee,$business,$v){User::where('id',$employee->id)->lockForUpdate()->first();$employee->update(collect($v)->except('branches')->all());$employee->tokens()->delete();DB::table('employee_branches')->where('user_id',$employee->id)->delete();foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$employee->id,'branch_id'=>$b]);});return redirect('/')->with('status','Employee updated. They should sign in again.');
+  $v=$r->validate(['name'=>'required|string|max:100','email'=>['required','email','max:255',Rule::unique('users','email')->ignore($employee->id),Rule::unique('platform_admins','email')],'phone'=>'nullable|string|max:40','employee_code'=>'nullable|string|max:40','job_title'=>'nullable|string|max:100','employment_start_date'=>'nullable|date_format:Y-m-d','emergency_contact_name'=>'nullable|string|max:100','emergency_contact_phone'=>'nullable|string|max:40','branches'=>'required|array|min:1','branches.*'=>['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)]]);
+  DB::transaction(function()use($employee,$business,$v){DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$employee->id)->lockForUpdate()->firstOrFail();if($current->active)$this->capacity->ensureEmployeeAssignments($business,$v['branches'],$current->id);$current->update(collect($v)->except('branches')->all());$current->tokens()->delete();DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);});return redirect('/')->with('status','Employee updated. They should sign in again.');
  }
  public function editBranch(Request $r,$id){$business=$this->business($r);return view('branches.edit',['branch'=>DB::table('branches')->where('business_id',$business)->where('id',$id)->firstOrFail()]);}
  public function updateBranch(Request $r,$id){
@@ -62,11 +65,11 @@ class AdminController {
  public function assignments(Request $r,$id){
   $business=$this->business($r);$u=User::where('business_id',$business)->findOrFail($id);
   $v=$r->validate(['branches'=>'required|array|min:1','branches.*'=>['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)]]);
-  DB::transaction(function()use($u,$business,$v){User::where('id',$u->id)->lockForUpdate()->first();$u->tokens()->delete();DB::table('employee_branches')->where('user_id',$u->id)->delete();foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$u->id,'branch_id'=>$b]);});return back()->with('status','Branch assignments updated. Employee should sign in again to refresh their branches.');
+  DB::transaction(function()use($u,$business,$v){DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$u->id)->lockForUpdate()->firstOrFail();if($current->active)$this->capacity->ensureEmployeeAssignments($business,$v['branches'],$current->id);$current->tokens()->delete();DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);});return back()->with('status','Branch assignments updated. Employee should sign in again to refresh their branches.');
  }
  public function toggle(Request $r,$id){
   $business=$this->business($r);abort_if((int)$id===$r->user()->id,422,'You cannot deactivate yourself.');
-  $u=User::where('business_id',$business)->findOrFail($id);$u->active=!$u->active;$u->save();if(!$u->active)$u->tokens()->delete();return back()->with('status','Employee status updated.');
+  DB::transaction(function()use($business,$id){DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$u=User::where('business_id',$business)->where('role','employee')->where('id',$id)->lockForUpdate()->firstOrFail();if(!$u->active)$this->capacity->ensureCanActivateEmployee($business,$u->id);$u->active=!$u->active;$u->save();if(!$u->active)$u->tokens()->delete();});return back()->with('status','Employee status updated.');
  }
  public function correction(Request $r,$id){
   $business=$this->business($r);$v=$r->validate(['clock_in'=>'required|date','clock_out'=>'nullable|date|after:clock_in','reason'=>'required|string|min:5|max:500']);

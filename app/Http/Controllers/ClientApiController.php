@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\AttendanceReport;
+use App\Services\BusinessCapacity;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -12,7 +13,7 @@ use Illuminate\Validation\Rule;
 
 class ClientApiController
 {
-    public function __construct(private AttendanceReport $reports) {}
+    public function __construct(private AttendanceReport $reports, private BusinessCapacity $capacity) {}
 
     private function businessId(Request $request): int
     {
@@ -42,6 +43,8 @@ class ClientApiController
             'employees' => User::where('business_id', $businessId)->where('role', 'employee')->count(),
             'active_employees' => User::where('business_id', $businessId)->where('role', 'employee')->where('active', true)->count(),
             'branches' => DB::table('branches')->where('business_id', $businessId)->where('active', true)->count(),
+            'branch_limit' => (int) $this->capacity->profile($businessId)->branch_limit,
+            'employees_per_branch_limit' => (int) $this->capacity->profile($businessId)->employees_per_branch_limit,
             'currently_clocked_in' => DB::table('attendance_records')->where('business_id', $businessId)->whereNull('clock_out')->count(),
             'today' => $todayReport,
         ]);
@@ -56,7 +59,10 @@ class ClientApiController
         })->where('employee_branches.business_id', $businessId)->select('employee_branches.user_id', 'branches.id', 'branches.name')->get()->groupBy('user_id');
         return response()->json(['data' => $employees->map(fn($u) => [
             'id' => $u->id, 'name' => $u->name, 'email' => $u->email, 'phone' => $u->phone,
-            'employee_code' => $u->employee_code, 'active' => (bool) $u->active,
+            'employee_code' => $u->employee_code, 'job_title' => $u->job_title,
+            'employment_start_date' => $u->employment_start_date,
+            'emergency_contact_name' => $u->emergency_contact_name,
+            'emergency_contact_phone' => $u->emergency_contact_phone, 'active' => (bool) $u->active,
             'branches' => ($assignments[$u->id] ?? collect())->map(fn($b) => ['id' => $b->id, 'name' => $b->name])->values(),
         ])->values()]);
     }
@@ -68,13 +74,21 @@ class ClientApiController
             'name' => 'required|string|max:100', 'email' => 'required|email|max:255|unique:users,email|unique:platform_admins,email',
             'password' => 'required|string|min:8|max:100', 'phone' => 'nullable|string|max:40',
             'employee_code' => 'nullable|string|max:40', 'branches' => 'required|array|min:1',
+            'job_title' => 'nullable|string|max:100', 'employment_start_date' => 'nullable|date_format:Y-m-d',
+            'emergency_contact_name' => 'nullable|string|max:100', 'emergency_contact_phone' => 'nullable|string|max:40',
             'branches.*' => $this->branchRules($businessId),
         ]);
         $employee = DB::transaction(function () use ($businessId, $v) {
+            DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            $this->capacity->ensureEmployeeAssignments($businessId, $v['branches']);
             $employee = User::create([
                 'business_id' => $businessId, 'name' => $v['name'], 'email' => $v['email'],
                 'password' => $v['password'], 'phone' => $v['phone'] ?? null,
-                'employee_code' => $v['employee_code'] ?? null, 'role' => 'employee', 'active' => true,
+                'employee_code' => $v['employee_code'] ?? null, 'job_title' => $v['job_title'] ?? null,
+                'employment_start_date' => $v['employment_start_date'] ?? null,
+                'emergency_contact_name' => $v['emergency_contact_name'] ?? null,
+                'emergency_contact_phone' => $v['emergency_contact_phone'] ?? null,
+                'role' => 'employee', 'active' => true,
             ]);
             foreach (array_unique($v['branches']) as $branchId) {
                 DB::table('employee_branches')->insert(['business_id' => $businessId, 'user_id' => $employee->id, 'branch_id' => $branchId]);
@@ -93,15 +107,20 @@ class ClientApiController
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($employee->id), Rule::unique('platform_admins', 'email')],
             'password' => 'nullable|string|min:8|max:100', 'phone' => 'nullable|string|max:40',
             'employee_code' => 'nullable|string|max:40', 'branches' => 'required|array|min:1',
+            'job_title' => 'nullable|string|max:100', 'employment_start_date' => 'nullable|date_format:Y-m-d',
+            'emergency_contact_name' => 'nullable|string|max:100', 'emergency_contact_phone' => 'nullable|string|max:40',
             'branches.*' => $this->branchRules($businessId),
         ]);
-        DB::transaction(function () use ($businessId, $employee, $v) {
-            $employee->update(collect($v)->except(['branches', 'password'])->all());
-            if (!empty($v['password'])) $employee->update(['password' => $v['password']]);
-            $employee->tokens()->delete();
-            DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $employee->id)->delete();
+        DB::transaction(function () use ($businessId, $employee, $v, $id) {
+            DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            $current = User::where('business_id', $businessId)->where('id', $id)->lockForUpdate()->firstOrFail();
+            if ($current->active) $this->capacity->ensureEmployeeAssignments($businessId, $v['branches'], $current->id);
+            $current->update(collect($v)->except(['branches', 'password'])->all());
+            if (!empty($v['password'])) $current->update(['password' => $v['password']]);
+            $current->tokens()->delete();
+            DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
             foreach (array_unique($v['branches']) as $branchId) {
-                DB::table('employee_branches')->insert(['business_id' => $businessId, 'user_id' => $employee->id, 'branch_id' => $branchId]);
+                DB::table('employee_branches')->insert(['business_id' => $businessId, 'user_id' => $current->id, 'branch_id' => $branchId]);
             }
         });
         return response()->json(['message' => 'Employee updated. They need to sign in again.']);
@@ -111,10 +130,16 @@ class ClientApiController
     {
         $businessId = $this->businessId($request);
         $employee = $this->employee($businessId, $id);
-        $employee->active = !$employee->active;
-        $employee->save();
-        if (!$employee->active) $employee->tokens()->delete();
-        return response()->json(['message' => $employee->active ? 'Employee activated.' : 'Employee deactivated.', 'active' => $employee->active]);
+        $active = DB::transaction(function () use ($businessId, $id) {
+            DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            $employee = User::where('business_id', $businessId)->where('role', 'employee')->where('id', $id)->lockForUpdate()->firstOrFail();
+            if (!$employee->active) $this->capacity->ensureCanActivateEmployee($businessId, $employee->id);
+            $employee->active = !$employee->active;
+            $employee->save();
+            if (!$employee->active) $employee->tokens()->delete();
+            return $employee->active;
+        });
+        return response()->json(['message' => $active ? 'Employee activated.' : 'Employee deactivated.', 'active' => $active]);
     }
 
     public function branches(Request $request)
@@ -125,6 +150,8 @@ class ClientApiController
             'id' => $b->id, 'name' => $b->name, 'address' => $b->address,
             'latitude' => (float) $b->latitude, 'longitude' => (float) $b->longitude,
             'radius_m' => (int) $b->radius_m, 'active' => (bool) $b->active,
+            'employee_count' => $this->capacity->activeEmployeeCount($businessId, (int) $b->id),
+            'employee_limit' => $this->capacity->employeeLimit($businessId, (int) $b->id),
         ])->values()]);
     }
 
@@ -132,7 +159,11 @@ class ClientApiController
     {
         $businessId = $this->businessId($request);
         $v = $request->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000']);
-        $id = DB::table('branches')->insertGetId([...$v, 'business_id'=>$businessId, 'active'=>true, 'created_at'=>now(), 'updated_at'=>now()]);
+        $id = DB::transaction(function () use ($businessId, $v) {
+            DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            $this->capacity->ensureBranchSlot($businessId);
+            return DB::table('branches')->insertGetId([...$v, 'business_id'=>$businessId, 'active'=>true, 'created_at'=>now('UTC'), 'updated_at'=>now('UTC')]);
+        });
         return response()->json(['message'=>'Workplace created.', 'id'=>$id], 201);
     }
 
@@ -142,7 +173,11 @@ class ClientApiController
         $branch = DB::table('branches')->where('business_id', $businessId)->where('id', $id)->first();
         abort_unless($branch, 404);
         $v = $request->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000','active'=>'sometimes|boolean']);
-        DB::table('branches')->where('business_id', $businessId)->where('id', $id)->update([...$v, 'updated_at'=>now()]);
+        DB::transaction(function () use ($businessId, $id, $branch, $v) {
+            DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            if (array_key_exists('active', $v) && $v['active'] && !$branch->active) $this->capacity->ensureBranchSlot($businessId);
+            DB::table('branches')->where('business_id', $businessId)->where('id', $id)->update([...$v, 'updated_at'=>now('UTC')]);
+        });
         return response()->json(['message'=>'Workplace updated.']);
     }
 

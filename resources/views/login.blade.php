@@ -1,4 +1,10 @@
-@extends('layout')
+@extends('auth.layout')
+@section('title','Sign in')
 @section('content')
-<div class="card" style="max-width:440px;margin:50px auto"><span class="eyebrow">WELCOME BACK</span><h1>Your team.<br>Your time.</h1><p>Sign in to manage attendance across your workplaces.</p><form method="post" action="/login">@csrf<label>Work email</label><input name="email" type="email" required autocomplete="username"><label>Password</label><input name="password" type="password" required autocomplete="current-password"><button style="width:100%;margin-top:24px">Sign in</button></form><p><a href="/forgot-password">Forgot password?</a></p></div>
+<span class="eyebrow">Welcome back</span><h2>Sign in to your workspace.</h2><p class="auth-intro">Your people, workplaces and attendance, together in one clear view.</p>
+<form method="post" action="{{url('/login')}}" class="auth-form">@csrf
+<label for="email">Work email</label><input id="email" name="email" type="email" value="{{old('email')}}" required autocomplete="username" placeholder="you@yourbusiness.com" autofocus>
+<div class="label-row"><label for="password">Password</label><a href="{{url('/forgot-password')}}">Forgot password?</a></div><div class="password-field"><input id="password" name="password" type="password" required autocomplete="current-password" placeholder="Enter your password"><button type="button" data-password-toggle="password" aria-label="Show password" aria-pressed="false">@include('partials.icon',['name'=>'eye'])</button></div>
+<button class="button full" type="submit">Sign in @include('partials.icon',['name'=>'arrow'])</button></form>
+<div class="auth-reassurance">@include('partials.icon',['name'=>'shield'])<p>Use the account provided by your employer or Mento Software.</p></div>
 @endsection

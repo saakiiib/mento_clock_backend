@@ -9,8 +9,14 @@ use Illuminate\Validation\Rule;
 class AdminController {
  public function login(Request $r){
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
-  if(!Auth::attempt([...$v,'active'=>true,'role'=>'admin']))return back()->withErrors(['email'=>'Invalid administrator credentials.']);
-  $r->session()->regenerate();return redirect('/');
+  if(Auth::guard('web')->attempt([...$v,'active'=>true,'role'=>'admin'])){
+   if(!DB::table('businesses')->where('id',Auth::guard('web')->user()->business_id)->where('active',true)->exists()){Auth::guard('web')->logout();return back()->withErrors(['email'=>'This workspace is paused. Please contact Mento Software.']);}
+   Auth::guard('platform')->logout();$r->session()->forget('platform_version');$r->session()->regenerate();return redirect('/');
+  }
+  if(Auth::guard('platform')->attempt([...$v,'active'=>true])){
+   Auth::guard('web')->logout();$r->session()->regenerate();$r->session()->put('platform_version',Auth::guard('platform')->user()->auth_version);return redirect('/platform');
+  }
+  return back()->withErrors(['email'=>'The email or password is incorrect, or this account is inactive.']);
  }
  private function business(Request $r): int {
   $u=$r->user();abort_unless($u && $u->role==='admin' && $u->active,403);
@@ -22,14 +28,21 @@ class AdminController {
   $branches=DB::table('branches')->where('business_id',$id)->get();
   $employees=User::where('business_id',$id)->get();
   $records=DB::table('attendance_records as a')->join('users as u','u.id','=','a.user_id')->join('branches as b','b.id','=','a.branch_id')->where('a.business_id',$id)->orderByDesc('a.clock_in')->select('a.*','u.name as employee','b.name as branch')->limit(200)->get();
-  return view('dashboard',compact('business','branches','employees','records'));
+  $section=in_array($r->path(),['people','workplaces','attendance','company'])?$r->path():'overview';
+  $assigned=DB::table('employee_branches')->where('business_id',$id)->get()->groupBy('user_id')->map(fn($rows)=>$rows->pluck('branch_id')->all());
+  $today=Carbon::now($business->timezone)->toDateString();
+  $todayReport=app(\App\Services\AttendanceReport::class)->make($id,['period'=>'daily','date'=>$today]);
+  $weekReport=app(\App\Services\AttendanceReport::class)->make($id,['period'=>'weekly','date'=>$today]);
+  $workingCount=DB::table('attendance_records')->where('business_id',$id)->whereNull('clock_out')->count();
+  $profile=DB::table('client_profiles')->where('business_id',$id)->first();
+  return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile'));
  }
  public function branch(Request $r){
   $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000']);
   DB::table('branches')->insert([...$v,'business_id'=>$id,'active'=>true,'created_at'=>now(),'updated_at'=>now()]);return back()->with('status','Branch created.');
  }
  public function employee(Request $r){
-  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','email'=>'required|email|max:255|unique:users,email','password'=>'required|string|min:12|max:100','branches'=>'required|array|min:1','branches.*'=>['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)]]);
+  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','email'=>'required|email|max:255|unique:users,email|unique:platform_admins,email','password'=>'required|string|min:12|max:100','branches'=>'required|array|min:1','branches.*'=>['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)]]);
   DB::transaction(function()use($id,$v){$u=User::create(['name'=>$v['name'],'email'=>$v['email'],'password'=>$v['password'],'business_id'=>$id,'role'=>'employee','active'=>true]);foreach(array_unique($v['branches']) as $b) DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);});return back()->with('status','Employee created. Share their login credentials securely.');
  }
  public function editEmployee(Request $r,$id){
@@ -38,7 +51,7 @@ class AdminController {
  }
  public function updateEmployee(Request $r,$id){
   $business=$this->business($r);$employee=User::where('business_id',$business)->findOrFail($id);
-  $v=$r->validate(['name'=>'required|string|max:100','email'=>['required','email','max:255',Rule::unique('users','email')->ignore($employee->id)],'phone'=>'nullable|string|max:40','employee_code'=>'nullable|string|max:40','branches'=>'required|array|min:1','branches.*'=>['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)]]);
+  $v=$r->validate(['name'=>'required|string|max:100','email'=>['required','email','max:255',Rule::unique('users','email')->ignore($employee->id),Rule::unique('platform_admins','email')],'phone'=>'nullable|string|max:40','employee_code'=>'nullable|string|max:40','branches'=>'required|array|min:1','branches.*'=>['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)]]);
   DB::transaction(function()use($employee,$business,$v){User::where('id',$employee->id)->lockForUpdate()->first();$employee->update(collect($v)->except('branches')->all());$employee->tokens()->delete();DB::table('employee_branches')->where('user_id',$employee->id)->delete();foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$employee->id,'branch_id'=>$b]);});return redirect('/')->with('status','Employee updated. They should sign in again.');
  }
  public function editBranch(Request $r,$id){$business=$this->business($r);return view('branches.edit',['branch'=>DB::table('branches')->where('business_id',$business)->where('id',$id)->firstOrFail()]);}

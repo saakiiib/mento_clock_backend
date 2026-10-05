@@ -11,7 +11,8 @@ class ClockController {
   $u=User::where('email',$v['email'])->first();
   abort_unless($u && Hash::check($v['password'],$u->password) && $u->active,401,'Invalid credentials or inactive account.');
   $b=DB::table('businesses')->where('id',$u->business_id)->where('active',true)->first();abort_unless($b,403,'Business is inactive.');
-  $token=$u->createToken('mentoclock-mobile',['attendance'],now()->addDays(30))->plainTextToken;
+  $abilities = $u->role === 'admin' ? ['*'] : ['attendance'];
+  $token=$u->createToken('mentoclock-mobile',$abilities,now()->addDays(30))->plainTextToken;
   return response()->json(['token'=>$token,'user'=>$this->account($u)]);
  }
  private function account(User $u): array {

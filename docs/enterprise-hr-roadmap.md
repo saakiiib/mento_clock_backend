@@ -22,11 +22,11 @@ The first implementation step is the SaaS Module Engine: catalogue, client entit
 | Employee Management | Available, profile expansion underway | Employee account and workplace assignment plus personal, home address, emergency contact, banking, passport/visa/CoS, department, designation, employment terms and reporting-authority fields. NI, bank, address, passport, visa/BRP and CoS reference data are encrypted at rest. Next: private documents and profile image, onboarding, contract records, role history and offboarding. |
 | Attendance Tracking | Available | Mobile clock-in/out, geofence validation, attendance history, manager corrections and audit trail. Expand with break rules, timesheets and approval. |
 | Dashboard & Reports | Available | Attendance reports and exports. Expand with labour cost and absence analytics when the required data and permissions exist. |
-| Leave Management | Planned | Configurable annual leave years and accrual, bank-holiday treatment, request/approval workflow, balances and team calendar. |
-| Rota & Shifts | Planned | Shift templates, availability, publishing, shift swaps, coverage warnings and links to attendance. |
+| Leave Management | Implemented for pilot | Workspace leave year, contractual annual entitlement defaults and employee overrides, weekly work patterns, annual/sick/unpaid/compassionate/other requests, overlap checks, pending holds, admin approval/decline, cancellation and audit events. Accrual, carry-over, part-year proration and statutory calculations remain future work. Employee API is ready for the existing app's next UI update. |
+| Rota & Shifts | Pilot MVP implemented with Leave/Holiday integration | Weekly draft shifts with publish/cancel, employee and branch assignment, overlap/leave/company-closure checks, audit events and a published-shifts API for the existing app. Next: templates, recurring schedules, availability, swaps, coverage warnings, working-time/rest-rule enforcement and rota-to-attendance variance. |
 | Compliance Tracking | Planned | Document metadata, expiry reminders, review evidence and access history. Keep sensitive files private and support retention rules. Right-to-work and sponsor records should be designed against current official guidance and reviewed before describing the product as a compliance guarantee. |
 | Company Notices | Planned | Audience-targeted announcements, delivery status and optional acknowledgement records. |
-| Holiday Calendar | Planned | UK nation and local-region public holidays, client-specific closures and leave-policy integration. |
+| Holiday Calendar | Implemented for pilot | Tenant-scoped manual regional holidays and local closures, calendar management, change history and exclusion from working-day leave counts. Public-holiday dates and substitute days must be entered and verified by each workspace; automated official-date import remains future work. |
 
 Potential later modules: recruitment/onboarding workflow, training and certification, performance reviews, equipment register, employee self-service, payroll export/integrations, and HR consultant multi-client access. Payroll calculations should remain an integration or separately scoped product until tax, pension, and statutory rules are maintained and tested.
 
@@ -34,11 +34,11 @@ Potential later modules: recruitment/onboarding workflow, training and certifica
 
 1. Module entitlements and per-client capacity controls (current stage).
 2. Complete the responsive enterprise web portal, including role-based access for business owners, HR administrators, location managers and employees.
-3. Build Leave Management and the Holiday Calendar, since policy settings and balances must agree before rota planning.
-4. Build Rota & Shifts, integrated with existing attendance and employee workplace assignments.
+3. Pilot Leave Management, Holiday Calendar and the first Rota & Shifts workflow together. Verify tenant entitlements, employee work patterns, closure flags, leave/rota conflict handling and mobile API access.
+4. Expand Rota & Shifts with templates, availability, swaps, coverage and attendance variance once the integrated pilot workflows are stable.
 5. Add private employee document records and compliance reminders with precise permissions and access logs.
-6. Add Company Notices, acknowledgements and employee self-service.
-7. Stabilise and document the API contracts, then extend the existing role-aware mobile app for employees and business owners/managers while preserving clock-in/out.
+6. Add Company Notices, acknowledgements and broader employee self-service.
+7. Stabilise and document the API contracts, then extend the existing role-aware mobile app for leave, shifts and employee self-service while preserving clock-in/out.
 8. Add cross-module reporting, integrations and consultant access after the base workflows have stable audit and permission models.
 
 ## Enterprise foundations to preserve

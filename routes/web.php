@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
-use App\Http\Controllers\{AdminController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController};
+use App\Http\Controllers\{AdminController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,RotaController};
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -26,6 +26,17 @@ Route::middleware(['auth','active.business','business.admin'])->group(function()
  Route::post('/employees',[AdminController::class,'employee'])->middleware('module.enabled:employee_management');Route::get('/employees/{id}/edit',[AdminController::class,'editEmployee'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/employees/{id}/edit',[AdminController::class,'updateEmployee'])->whereNumber('id')->middleware('module.enabled:employee_management');
  Route::post('/employees/{id}/assignments',[AdminController::class,'assignments'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/employees/{id}/status',[AdminController::class,'toggle'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/attendance/{id}/correct',[AdminController::class,'correction'])->whereNumber('id')->middleware('module.enabled:attendance_tracking');
  Route::get('/reports',[ReportController::class,'index'])->middleware('module.enabled:reports_analytics');Route::get('/reports/download',[ReportController::class,'download'])->middleware('module.enabled:reports_analytics');Route::post('/reports/email',[ReportController::class,'email'])->middleware(['module.enabled:reports_analytics','throttle:3,1']);
+ Route::get('/leave',[LeaveController::class,'index'])->middleware('module.enabled:leave_management');
+ Route::get('/calendar',[LeaveController::class,'calendar'])->middleware('module.enabled:holiday_calendar');
+ Route::post('/leave/policy',[LeaveController::class,'savePolicy'])->middleware('module.enabled:leave_management');
+ Route::post('/leave/employees/{employeeId}',[LeaveController::class,'saveEmployeeProfile'])->whereNumber('employeeId')->middleware('module.enabled:leave_management');
+ Route::post('/calendar/holidays',[LeaveController::class,'storeHoliday'])->middleware('module.enabled:holiday_calendar');
+ Route::post('/calendar/holidays/{holidayId}/delete',[LeaveController::class,'deleteHoliday'])->whereNumber('holidayId')->middleware('module.enabled:holiday_calendar');
+ Route::post('/leave/requests/{requestId}/review',[LeaveController::class,'review'])->whereNumber('requestId')->middleware('module.enabled:leave_management');
+ Route::get('/rota',[RotaController::class,'index'])->middleware('module.enabled:rota_shifts');
+ Route::post('/rota/shifts',[RotaController::class,'store'])->middleware('module.enabled:rota_shifts');
+ Route::post('/rota/shifts/{shiftId}/publish',[RotaController::class,'publish'])->whereNumber('shiftId')->middleware('module.enabled:rota_shifts');
+ Route::post('/rota/shifts/{shiftId}/cancel',[RotaController::class,'delete'])->whereNumber('shiftId')->middleware('module.enabled:rota_shifts');
 });
 Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalidate();$r->session()->regenerateToken();return redirect('/login');})->middleware('auth');
 

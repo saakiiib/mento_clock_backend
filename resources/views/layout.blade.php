@@ -13,11 +13,14 @@ $links = $platform ? [
  ['/workplaces','shop','Workplaces',request()->is('workplaces','branches*')],
  ['/attendance','clock','Attendance',request()->is('attendance')],
  ['/reports','report','Reports',request()->is('reports*')],
+ ['/leave','clock','Leave management',request()->is('leave*')],
+ ['/calendar','report','Holiday calendar',request()->is('calendar*')],
+ ['/rota','clock','Rota & shifts',request()->is('rota*')],
  ['/company','building','Company profile',request()->is('company')],
 ];
 if (!$platform) {
     $moduleAccess = app(\App\Services\ModuleAccess::class);
-    $requiredModules = ['/people'=>'employee_management','/workplaces'=>'employee_management','/company'=>'employee_management','/attendance'=>'attendance_tracking','/reports'=>'reports_analytics'];
+    $requiredModules = ['/people'=>'employee_management','/workplaces'=>'employee_management','/company'=>'employee_management','/attendance'=>'attendance_tracking','/reports'=>'reports_analytics','/leave'=>'leave_management','/calendar'=>'holiday_calendar','/rota'=>'rota_shifts'];
     $links = array_values(array_filter($links, fn ($link) => !isset($requiredModules[$link[0]]) || $moduleAccess->enabled((int) $viewer->business_id, $requiredModules[$link[0]])));
 }
 @endphp

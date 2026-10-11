@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 class AdminController {
  public function __construct(private BusinessCapacity $capacity) {}
@@ -39,23 +40,122 @@ class AdminController {
   $profile=DB::table('client_profiles')->where('business_id',$id)->first();
   return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile'));
  }
+ private function employeeProfileRules(int $businessId): array {
+  $authority=Rule::exists('users','id')->where('business_id',$businessId)->where('active',true);
+  return [
+   'first_name'=>'required|string|max:100','middle_name'=>'nullable|string|max:100','last_name'=>'required|string|max:100',
+   'email'=>'required|email|max:255','phone'=>'required|string|max:40','alternative_phone'=>'nullable|string|max:40',
+   'employee_code'=>'nullable|string|max:40','gender'=>'nullable|string|in:female,male,non_binary,prefer_not_to_say',
+   'national_insurance_number'=>'nullable|string|max:30','date_of_birth'=>'nullable|date_format:Y-m-d|before:today',
+   'marital_status'=>'nullable|string|max:50','nationality'=>'nullable|string|max:100',
+   'home_address_line_1'=>'nullable|string|max:255','home_address_line_2'=>'nullable|string|max:255',
+   'home_city'=>'nullable|string|max:120','home_county'=>'nullable|string|max:120',
+   'home_postcode'=>'nullable|string|max:20','home_country'=>'nullable|string|max:100',
+   'bank_name'=>'nullable|string|max:150','sort_code'=>'nullable|string|max:20','bank_account_number'=>'nullable|string|max:40',
+   'emergency_contact_name'=>'nullable|string|max:100','emergency_contact_relationship'=>'nullable|string|max:80',
+   'emergency_contact_phone'=>'nullable|string|max:40','emergency_contact_email'=>'nullable|email|max:255',
+   'emergency_contact_address'=>'nullable|string|max:1000',
+   'passport_number'=>'nullable|string|max:60','passport_nationality'=>'nullable|string|max:100',
+   'passport_issued_by'=>'nullable|string|max:150','passport_issued_date'=>'nullable|date_format:Y-m-d',
+   'passport_expiry_date'=>'nullable|date_format:Y-m-d','visa_brp_number'=>'nullable|string|max:60',
+   'visa_nationality'=>'nullable|string|max:100','visa_issued_by'=>'nullable|string|max:150',
+   'visa_issued_date'=>'nullable|date_format:Y-m-d','visa_expiry_date'=>'nullable|date_format:Y-m-d',
+   'cos_number'=>'nullable|string|max:80','cos_start_date'=>'nullable|date_format:Y-m-d','cos_end_date'=>'nullable|date_format:Y-m-d',
+   'department'=>'nullable|string|max:120','job_title'=>'nullable|string|max:100',
+   'employment_type'=>'nullable|string|in:full_time,part_time,fixed_term,casual,zero_hours,contractor,apprentice,other',
+   'shift_name'=>'nullable|string|max:120','late_policy'=>'nullable|string|max:120','day_off_rule'=>'nullable|string|max:120',
+   'employment_start_date'=>'nullable|date_format:Y-m-d','date_of_confirmation'=>'nullable|date_format:Y-m-d',
+   'contract_start_date'=>'nullable|date_format:Y-m-d','contract_end_date'=>'nullable|date_format:Y-m-d',
+   'job_location'=>'nullable|string|max:180','job_description'=>'nullable|string|max:10000',
+   'reporting_authority_id'=>['nullable','integer',$authority],
+   'leave_sanction_authority_id'=>['nullable','integer',$authority],
+  ];
+ }
+ private function employeeProfilePayload(array $validated): array {
+  $fields=[
+   'first_name','middle_name','last_name','email','phone','alternative_phone','employee_code','gender',
+   'national_insurance_number','date_of_birth','marital_status','nationality','home_address_line_1',
+   'home_address_line_2','home_city','home_county','home_postcode','home_country','bank_name','sort_code',
+   'bank_account_number','emergency_contact_name','emergency_contact_relationship','emergency_contact_phone',
+   'emergency_contact_email','emergency_contact_address','passport_number','passport_nationality',
+   'passport_issued_by','passport_issued_date','passport_expiry_date','visa_brp_number','visa_nationality',
+   'visa_issued_by','visa_issued_date','visa_expiry_date','cos_number','cos_start_date','cos_end_date',
+   'department','job_title','employment_type','shift_name','late_policy','day_off_rule','employment_start_date',
+   'date_of_confirmation','contract_start_date','contract_end_date','job_location','job_description',
+   'reporting_authority_id','leave_sanction_authority_id',
+  ];
+  $payload=collect($validated)->only($fields)->all();
+  $payload['name']=trim(implode(' ',array_filter([
+   $validated['first_name']??null,$validated['middle_name']??null,$validated['last_name']??null
+  ],fn($part)=>filled($part))));
+  return $payload;
+ }
+ private function employeePrivateInputs(): array {
+  return [
+   'password','password_confirmation','date_of_birth','national_insurance_number','nationality',
+   'home_address_line_1','home_address_line_2','home_city','home_county','home_postcode','home_country',
+   'bank_name','sort_code','bank_account_number','emergency_contact_name','emergency_contact_relationship',
+   'emergency_contact_phone','emergency_contact_email','emergency_contact_address','passport_number',
+   'passport_nationality','passport_issued_by','passport_issued_date','passport_expiry_date',
+   'visa_brp_number','visa_nationality','visa_issued_by','visa_issued_date','visa_expiry_date',
+   'cos_number','cos_start_date','cos_end_date',
+  ];
+ }
+ private function validateEmployeeForm(Request $request, array $rules): array|\Illuminate\Http\RedirectResponse {
+  $validator=Validator::make($request->all(),$rules);
+  if($validator->fails()){
+   return back()->withErrors($validator)->withInput($request->except($this->employeePrivateInputs()));
+  }
+  return $validator->validated();
+ }
+ private function employeeFormData(int $businessId): array {
+  $branches=DB::table('branches')->where('business_id',$businessId)->where('active',true)->get()->map(function($branch)use($businessId){
+   $branch->employee_count=$this->capacity->activeEmployeeCount($businessId,(int)$branch->id);
+   $branch->employee_limit=$this->capacity->employeeLimit($businessId,(int)$branch->id);
+   return $branch;
+  });
+  $authorities=User::where('business_id',$businessId)->where('active',true)->orderBy('name')->get(['id','name','email','role']);
+  return compact('branches','authorities');
+ }
+ public function createEmployee(Request $r){
+  $businessId=$this->business($r);$form=$this->employeeFormData($businessId);
+  return view('employees.create',[...$form,'employee'=>null,'assigned'=>[]]);
+ }
  public function branch(Request $r){
   $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000']);
   DB::transaction(function()use($id,$v){DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureBranchSlot($id);DB::table('branches')->insert([...$v,'business_id'=>$id,'active'=>true,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);});return back()->with('status','Branch created.');
  }
  public function employee(Request $r){
-  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','email'=>'required|email|max:255|unique:users,email|unique:platform_admins,email','password'=>'required|string|min:8|max:100','phone'=>'nullable|string|max:40','employee_code'=>'nullable|string|max:40','job_title'=>'nullable|string|max:100','employment_start_date'=>'nullable|date_format:Y-m-d','emergency_contact_name'=>'nullable|string|max:100','emergency_contact_phone'=>'nullable|string|max:40','branches'=>'required|array|min:1','branches.*'=>['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)]]);
-  DB::transaction(function()use($id,$v){DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$v['branches']);$u=User::create(collect($v)->except('branches')->merge(['business_id'=>$id,'role'=>'employee','active'=>true])->all());foreach(array_unique($v['branches']) as $b) DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);});return back()->with('status','Employee created. Share their login credentials securely.');
+  $id=$this->business($r);$rules=$this->employeeProfileRules($id);
+  $rules['email']=['required','email','max:255','unique:users,email','unique:platform_admins,email'];
+  $rules['password']='required|string|min:12|max:72';
+  $rules['branches']='required|array|min:1';$rules['branches.*']=['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)];
+  $v=$this->validateEmployeeForm($r,$rules);if($v instanceof \Illuminate\Http\RedirectResponse)return $v;$payload=$this->employeeProfilePayload($v);
+  DB::transaction(function()use($id,$v,$payload){
+   DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$v['branches']);
+   $u=User::create([...$payload,'password'=>$v['password'],'business_id'=>$id,'role'=>'employee','active'=>true]);
+   foreach(array_unique($v['branches']) as $b)DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);
+  });
+  return redirect('/people')->with('status','Employee created. Share their login credentials securely.');
  }
  public function editEmployee(Request $r,$id){
-  $business=$this->business($r);$employee=User::where('business_id',$business)->findOrFail($id);
-  $branches=DB::table('branches')->where('business_id',$business)->where('active',true)->get()->map(function($branch)use($business){$branch->employee_count=$this->capacity->activeEmployeeCount($business,(int)$branch->id);$branch->employee_limit=$this->capacity->employeeLimit($business,(int)$branch->id);return $branch;});
-  return view('employees.edit',['employee'=>$employee,'branches'=>$branches,'assigned'=>DB::table('employee_branches')->where('user_id',$employee->id)->pluck('branch_id')->all()]);
+  $business=$this->business($r);$employee=User::where('business_id',$business)->where('role','employee')->findOrFail($id);
+  return view('employees.edit',['employee'=>$employee,...$this->employeeFormData($business),'assigned'=>DB::table('employee_branches')->where('business_id',$business)->where('user_id',$employee->id)->pluck('branch_id')->all()]);
  }
  public function updateEmployee(Request $r,$id){
-  $business=$this->business($r);$employee=User::where('business_id',$business)->findOrFail($id);
-  $v=$r->validate(['name'=>'required|string|max:100','email'=>['required','email','max:255',Rule::unique('users','email')->ignore($employee->id),Rule::unique('platform_admins','email')],'phone'=>'nullable|string|max:40','employee_code'=>'nullable|string|max:40','job_title'=>'nullable|string|max:100','employment_start_date'=>'nullable|date_format:Y-m-d','emergency_contact_name'=>'nullable|string|max:100','emergency_contact_phone'=>'nullable|string|max:40','branches'=>'required|array|min:1','branches.*'=>['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)]]);
-  DB::transaction(function()use($employee,$business,$v){DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$employee->id)->lockForUpdate()->firstOrFail();if($current->active)$this->capacity->ensureEmployeeAssignments($business,$v['branches'],$current->id);$current->update(collect($v)->except('branches')->all());$current->tokens()->delete();DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);});return redirect('/')->with('status','Employee updated. They should sign in again.');
+  $business=$this->business($r);$employee=User::where('business_id',$business)->where('role','employee')->findOrFail($id);
+  $rules=$this->employeeProfileRules($business);$rules['email']=['required','email','max:255',Rule::unique('users','email')->ignore($employee->id),Rule::unique('platform_admins','email')];
+  $rules['password']='nullable|string|min:12|max:72';$rules['branches']='required|array|min:1';$rules['branches.*']=['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)];
+  $v=$this->validateEmployeeForm($r,$rules);if($v instanceof \Illuminate\Http\RedirectResponse)return $v;abort_if((int)($v['reporting_authority_id']??0)===$employee->id||(int)($v['leave_sanction_authority_id']??0)===$employee->id,422,'An employee cannot be their own authority.');
+  $payload=$this->employeeProfilePayload($v);
+  DB::transaction(function()use($employee,$business,$v,$payload){
+   DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$employee->id)->lockForUpdate()->firstOrFail();
+   if($current->active)$this->capacity->ensureEmployeeAssignments($business,$v['branches'],$current->id);
+   $current->update($payload);if(!empty($v['password']))$current->update(['password'=>$v['password']]);$current->tokens()->delete();
+   DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();
+   foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);
+  });
+  return redirect('/people')->with('status','Employee profile updated. They should sign in again.');
  }
  public function editBranch(Request $r,$id){$business=$this->business($r);return view('branches.edit',['branch'=>DB::table('branches')->where('business_id',$business)->where('id',$id)->firstOrFail()]);}
  public function updateBranch(Request $r,$id){

@@ -20,6 +20,7 @@ Route::post('/contact',[MarketingSiteController::class,'contact'])->middleware('
 Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');
 Route::middleware(['auth','active.business','business.admin'])->group(function(){
+ Route::get('/employees/create',[AdminController::class,'createEmployee'])->middleware('module.enabled:employee_management');
  foreach(['people'=>'employee_management','workplaces'=>'employee_management','company'=>'employee_management','attendance'=>'attendance_tracking'] as $page=>$module)Route::get('/'.$page,[AdminController::class,'index'])->middleware('module.enabled:'.$module);
  Route::post('/branches',[AdminController::class,'branch'])->middleware('module.enabled:employee_management');Route::get('/branches/{id}/edit',[AdminController::class,'editBranch'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/branches/{id}/edit',[AdminController::class,'updateBranch'])->whereNumber('id')->middleware('module.enabled:employee_management');
  Route::post('/employees',[AdminController::class,'employee'])->middleware('module.enabled:employee_management');Route::get('/employees/{id}/edit',[AdminController::class,'editEmployee'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/employees/{id}/edit',[AdminController::class,'updateEmployee'])->whereNumber('id')->middleware('module.enabled:employee_management');

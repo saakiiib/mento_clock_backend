@@ -36,6 +36,22 @@ class OrganisationProfileController
             abort(404, 'Organisation profile is not available.');
         }
 
+        // Keep the organisation setup score available on this page as well as
+        // on the client dashboard. A successful migration alone does not
+        // guarantee that the profile view has all the data it needs.
+        $organisationFields = [
+            $profile->organisation_name ?: $business->name,
+            $profile->organisation_type,
+            $profile->organisation_email ?: ($profile->contact_email ?? null),
+            $profile->authorised_email ?: ($profile->contact_email ?? null),
+            $profile->registered_office ?: (($profile->address_line_1 ?? null) ?: ($profile->address ?? null)),
+            $profile->operating_hours,
+        ];
+        $organisationProfileCompletion = (int) round(
+            count(array_filter($organisationFields, fn ($value) => is_string($value) ? trim($value) !== '' : !empty($value)))
+            / count($organisationFields) * 100
+        );
+
         $hours = $profile->operating_hours ? json_decode($profile->operating_hours, true) : [];
         $workingHours = [];
         foreach (self::DAYS as $day) {
@@ -52,6 +68,7 @@ class OrganisationProfileController
         return view('company.profile', [
             'business' => $business,
             'profile' => $profile,
+            'organisationProfileCompletion' => $organisationProfileCompletion,
             'workingHours' => $workingHours,
             'documents' => $documents,
             'businessDocuments' => $businessDocuments,

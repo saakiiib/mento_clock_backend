@@ -64,7 +64,10 @@ class OrganisationProfileTest extends TestCase
             'actor_id' => $admin->id,
             'action' => 'profile_updated',
         ]);
-        $this->actingAs($admin)->get('/company')->assertOk()->assertSee('Organisation profile');
+        $this->actingAs($admin)->get('/company')->assertOk()
+            ->assertSee('Organisation profile')
+            ->assertSee('Organisation setup')
+            ->assertSee('% complete');
     }
 
     public function test_organisation_documents_are_private_to_the_client_workspace(): void

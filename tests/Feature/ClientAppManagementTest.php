@@ -13,6 +13,7 @@ class ClientAppManagementTest extends TestCase
     private function account(string $name, string $role = 'employee'): array
     {
         $business = DB::table('businesses')->insertGetId(['name'=>$name,'timezone'=>'Europe/London','active'=>true]);
+        foreach (DB::table('modules')->where('available',true)->get(['id']) as $module) DB::table('business_modules')->insert(['business_id'=>$business,'module_id'=>$module->id,'status'=>'active','created_at'=>now(),'updated_at'=>now()]);
         $branch = DB::table('branches')->insertGetId(['business_id'=>$business,'name'=>'Branch '.$name,'address'=>'Test','latitude'=>52,'longitude'=>-0.7,'radius_m'=>100,'active'=>true]);
         $user = User::create(['business_id'=>$business,'name'=>$name,'email'=>strtolower(str_replace(' ','-',$name)).'@example.test','password'=>'test-password-123','role'=>$role,'active'=>true]);
         if ($role === 'employee') DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$user->id,'branch_id'=>$branch]);

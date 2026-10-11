@@ -10,6 +10,7 @@ class ReportsAndPortalTest extends TestCase {
  use RefreshDatabase;
  private function account(string $suffix,string $role='employee'): array {
   $b=DB::table('businesses')->insertGetId(['name'=>$suffix,'timezone'=>'Europe/London','active'=>true]);
+  foreach (DB::table('modules')->where('available',true)->get(['id']) as $module) DB::table('business_modules')->insert(['business_id'=>$b,'module_id'=>$module->id,'status'=>'active','created_at'=>now(),'updated_at'=>now()]);
   $branch=DB::table('branches')->insertGetId(['business_id'=>$b,'name'=>'Branch '.$suffix,'address'=>'Test address','latitude'=>52,'longitude'=>-0.7,'radius_m'=>100,'active'=>true]);
   $u=User::create(['business_id'=>$b,'name'=>$suffix,'email'=>$suffix.'@example.test','password'=>'test-password-123','role'=>$role,'active'=>true]);DB::table('employee_branches')->insert(['business_id'=>$b,'user_id'=>$u->id,'branch_id'=>$branch]);return [$u,$branch];
  }

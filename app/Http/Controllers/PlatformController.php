@@ -41,7 +41,8 @@ class PlatformController
 
     public function create()
     {
-        return view('platform.create');
+        $modules = DB::table('modules')->orderBy('sort_order')->get();
+        return view('platform.create', compact('modules'));
     }
 
     private function profileRules(): array
@@ -51,6 +52,14 @@ class PlatformController
             'contact_phone' => 'nullable|string|max:40', 'address' => 'nullable|string|max:500',
             'website' => 'nullable|url:https|max:255', 'plan_label' => 'nullable|string|max:100', 'notes' => 'nullable|string|max:3000',
             'branch_limit' => 'required|integer|min:1|max:500', 'employees_per_branch_limit' => 'required|integer|min:1|max:500'];
+    }
+
+    private function moduleRules(): array
+    {
+        return [
+            'module_codes' => 'required|array|min:1',
+            'module_codes.*' => [Rule::exists('modules', 'code')->where('available', true)],
+        ];
     }
 
     private function passwordRules(bool $required = true): array
@@ -67,7 +76,7 @@ class PlatformController
     public function store(Request $request)
     {
         $this->normalizeEmail($request, 'admin_email');
-        $values = $request->validate($this->profileRules() + [
+        $values = $request->validate($this->profileRules() + $this->moduleRules() + [
             'admin_name' => 'required|string|max:100', 'admin_email' => 'required|email|max:255|unique:users,email|unique:platform_admins,email',
             'password' => $this->passwordRules(),
         ]);
@@ -75,7 +84,9 @@ class PlatformController
             $id = DB::table('businesses')->insertGetId(['name' => $values['name'], 'timezone' => $values['timezone'], 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
             DB::table('client_profiles')->insert(['business_id' => $id, ...Arr::only($values, self::PROFILE), 'created_at' => now(), 'updated_at' => now()]);
             $admin = User::create(['business_id' => $id, 'name' => $values['admin_name'], 'email' => $values['admin_email'], 'password' => $values['password'], 'role' => 'admin', 'active' => true]);
+            $this->syncModules($id, $values['module_codes']);
             $this->audit($id, 'Client created', ['administrator_id' => $admin->id]);
+            $this->audit($id, 'Client modules assigned', ['modules' => $this->activeModuleCodes($id)]);
             return $id;
         });
         return redirect('/platform/clients/'.$id)->with('status', 'Client created. Share the administrator login securely; no credentials have been emailed.');
@@ -85,6 +96,12 @@ class PlatformController
     {
         $business = DB::table('businesses')->where('id', $id)->firstOrFail();
         $profile = DB::table('client_profiles')->where('business_id', $id)->first();
+        $moduleCodes = DB::table('business_modules as bm')->join('modules as m', 'm.id', '=', 'bm.module_id')
+            ->where('bm.business_id', $id)->where('bm.status', 'active')->pluck('m.code')->all();
+        $modules = DB::table('modules as m')->leftJoin('business_modules as bm', function ($join) use ($id) {
+            $join->on('bm.module_id', '=', 'm.id')->where('bm.business_id', '=', $id);
+        })->select('m.*', 'bm.status as entitlement_status', 'bm.starts_at', 'bm.ends_at')
+            ->orderBy('m.sort_order')->get();
         $admins = User::where('business_id', $id)->where('role', 'admin')->orderBy('name')->get();
         $branches = DB::table('branches as b')->where('b.business_id', $id)->orderBy('b.name')->get()->map(function ($branch) use ($id) {
             $branch->active_employee_count = DB::table('employee_branches as eb')->join('users as u', 'u.id', '=', 'eb.user_id')
@@ -97,13 +114,13 @@ class PlatformController
             'records' => DB::table('attendance_records')->where('business_id', $id)->count()];
         $activity = DB::table('platform_audit_logs as l')->join('platform_admins as a', 'a.id', '=', 'l.actor_id')
             ->where('l.business_id', $id)->select('l.*', 'a.name as actor')->orderByDesc('l.id')->limit(12)->get();
-        return view('platform.show', compact('business', 'profile', 'admins', 'branches', 'stats', 'activity'));
+        return view('platform.show', compact('business', 'profile', 'admins', 'branches', 'stats', 'activity', 'modules', 'moduleCodes'));
     }
 
     public function update(Request $request, int $id)
     {
         DB::table('businesses')->where('id', $id)->firstOrFail();
-        $values = $request->validate($this->profileRules());
+        $values = $request->validate($this->profileRules() + $this->moduleRules());
         DB::transaction(function () use ($values, $id) {
             DB::table('businesses')->where('id', $id)->lockForUpdate()->firstOrFail();
             $activeBranches = DB::table('branches')->where('business_id', $id)->where('active', true)->count();
@@ -113,8 +130,14 @@ class PlatformController
             DB::table('businesses')->where('id', $id)->update(['name' => $values['name'], 'timezone' => $values['timezone'], 'updated_at' => now()]);
             DB::table('client_profiles')->updateOrInsert(['business_id' => $id], [...Arr::only($values, self::PROFILE), 'updated_at' => now()]);
             $this->audit($id, 'Client profile updated', ['fields' => array_keys($values)]);
+            $before = $this->activeModuleCodes($id);
+            $this->syncModules($id, $values['module_codes']);
+            $after = $this->activeModuleCodes($id);
+            if ($before !== $after) {
+                $this->audit($id, 'Client modules updated', ['before' => $before, 'after' => $after]);
+            }
         });
-        return back()->with('status', 'Client profile saved.');
+        return back()->with('status', 'Client profile and module access saved.');
     }
 
     public function branchCapacity(Request $request, int $id, int $branchId)
@@ -141,6 +164,32 @@ class PlatformController
     {
         return DB::table('employee_branches as eb')->join('users as u', 'u.id', '=', 'eb.user_id')
             ->where('eb.business_id', $businessId)->where('eb.branch_id', $branchId)->where('u.role', 'employee')->where('u.active', true)->count();
+    }
+
+    /** @param array<int, string> $requestedCodes */
+    private function syncModules(int $businessId, array $requestedCodes): void
+    {
+        $coreCodes = DB::table('modules')->where('is_core', true)->pluck('code')->all();
+        $selected = array_values(array_unique([...$requestedCodes, ...$coreCodes]));
+        $now = now('UTC');
+        $actorId = Auth::guard('platform')->id();
+
+        foreach (DB::table('modules')->where('available', true)->get(['id', 'code']) as $module) {
+            $key = ['business_id' => $businessId, 'module_id' => $module->id];
+            $values = ['assigned_by' => $actorId, 'status' => in_array($module->code, $selected, true) ? 'active' : 'inactive', 'updated_at' => $now];
+            if (DB::table('business_modules')->where($key)->exists()) {
+                DB::table('business_modules')->where($key)->update($values);
+            } else {
+                DB::table('business_modules')->insert([...$key, ...$values, 'created_at' => $now]);
+            }
+        }
+    }
+
+    /** @return array<int, string> */
+    private function activeModuleCodes(int $businessId): array
+    {
+        return DB::table('business_modules as bm')->join('modules as m', 'm.id', '=', 'bm.module_id')
+            ->where('bm.business_id', $businessId)->where('bm.status', 'active')->orderBy('m.sort_order')->pluck('m.code')->all();
     }
 
     public function status(Request $request, int $id)

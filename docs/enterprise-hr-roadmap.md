@@ -24,8 +24,8 @@ The first implementation step is the SaaS Module Engine: catalogue, client entit
 | Dashboard & Reports | Available | Attendance reports and exports. Expand with labour cost and absence analytics when the required data and permissions exist. |
 | Leave Management | Implemented for pilot | Workspace leave year, contractual annual entitlement defaults and employee overrides, weekly work patterns, annual/sick/unpaid/compassionate/other requests, overlap checks, pending holds, admin approval/decline, cancellation and audit events. Accrual, carry-over, part-year proration and statutory calculations remain future work. Employee API is ready for the existing app's next UI update. |
 | Rota & Shifts | Pilot MVP implemented with Leave/Holiday integration | Weekly draft shifts with publish/cancel, employee and branch assignment, overlap/leave/company-closure checks, audit events and a published-shifts API for the existing app. Next: templates, recurring schedules, availability, swaps, coverage warnings, working-time/rest-rule enforcement and rota-to-attendance variance. |
-| Compliance Tracking | Planned | Document metadata, expiry reminders, review evidence and access history. Keep sensitive files private and support retention rules. Right-to-work and sponsor records should be designed against current official guidance and reviewed before describing the product as a compliance guarantee. |
-| Company Notices | Planned | Audience-targeted announcements, delivery status and optional acknowledgement records. |
+| Compliance & Training | Pilot MVP implemented | Private, tenant-scoped employee document register with categories, expiry dates, review/rejection notes, authorized downloads and audit events; training/certification records with provider, status and renewal dates; client dashboard due-soon indicators. Automated email reminders, retention/export/deletion workflows and official legal checks remain future work. |
+| Company Notices | Pilot MVP implemented | Client administrators draft, publish to all active employees, a workplace or one employee, and archive; optional per-recipient acknowledgements are recorded. Employee APIs are ready for later mobile UI work. Delivery reporting for scheduled notices and employee web self-service remain future work. |
 | Holiday Calendar | Implemented for pilot | Tenant-scoped manual regional holidays and local closures, calendar management, change history and exclusion from working-day leave counts. Public-holiday dates and substitute days must be entered and verified by each workspace; automated official-date import remains future work. |
 
 Potential later modules: recruitment/onboarding workflow, training and certification, performance reviews, equipment register, employee self-service, payroll export/integrations, and HR consultant multi-client access. Payroll calculations should remain an integration or separately scoped product until tax, pension, and statutory rules are maintained and tested.
@@ -36,9 +36,9 @@ Potential later modules: recruitment/onboarding workflow, training and certifica
 2. Complete the responsive enterprise web portal, including role-based access for business owners, HR administrators, location managers and employees.
 3. Pilot Leave Management, Holiday Calendar and the first Rota & Shifts workflow together. Verify tenant entitlements, employee work patterns, closure flags, leave/rota conflict handling and mobile API access.
 4. Expand Rota & Shifts with templates, availability, swaps, coverage and attendance variance once the integrated pilot workflows are stable.
-5. Add private employee document records and compliance reminders with precise permissions and access logs.
-6. Add Company Notices, acknowledgements and broader employee self-service.
-7. Stabilise and document the API contracts, then extend the existing role-aware mobile app for leave, shifts and employee self-service while preserving clock-in/out.
+5. Pilot private employee evidence, training/certification records and company notices; verify tenant boundaries and review/acknowledgement audit.
+6. Add a dedicated employee self-service web portal, automated reminders, document retention/export controls and more granular permissions.
+7. Stabilise and document the API contracts, then extend the existing role-aware mobile app for leave, shifts, notices and employee self-service while preserving clock-in/out.
 8. Add cross-module reporting, integrations and consultant access after the base workflows have stable audit and permission models.
 
 ## Enterprise foundations to preserve

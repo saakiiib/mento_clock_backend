@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
-use App\Http\Controllers\{AdminController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,RotaController};
+use App\Http\Controllers\{AdminController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,RotaController,OrganisationProfileController,ComplianceController,NoticeController};
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -21,7 +21,14 @@ Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');
 Route::middleware(['auth','active.business','business.admin'])->group(function(){
  Route::get('/employees/create',[AdminController::class,'createEmployee'])->middleware('module.enabled:employee_management');
- foreach(['people'=>'employee_management','workplaces'=>'employee_management','company'=>'employee_management','attendance'=>'attendance_tracking'] as $page=>$module)Route::get('/'.$page,[AdminController::class,'index'])->middleware('module.enabled:'.$module);
+ foreach(['people'=>'employee_management','workplaces'=>'employee_management','attendance'=>'attendance_tracking'] as $page=>$module)Route::get('/'.$page,[AdminController::class,'index'])->middleware('module.enabled:'.$module);
+ Route::get('/company',[OrganisationProfileController::class,'index']);
+ Route::post('/company/profile',[OrganisationProfileController::class,'update']);
+ Route::post('/company/logo',[OrganisationProfileController::class,'uploadLogo']);
+ Route::post('/company/documents',[OrganisationProfileController::class,'upload']);
+ Route::get('/company/documents/{documentId}/download',[OrganisationProfileController::class,'download'])->whereNumber('documentId');
+ Route::get('/company/documents/{documentId}/view',[OrganisationProfileController::class,'viewLogo'])->whereNumber('documentId');
+ Route::post('/company/documents/{documentId}/delete',[OrganisationProfileController::class,'delete'])->whereNumber('documentId');
  Route::post('/branches',[AdminController::class,'branch'])->middleware('module.enabled:employee_management');Route::get('/branches/{id}/edit',[AdminController::class,'editBranch'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/branches/{id}/edit',[AdminController::class,'updateBranch'])->whereNumber('id')->middleware('module.enabled:employee_management');
  Route::post('/employees',[AdminController::class,'employee'])->middleware('module.enabled:employee_management');Route::get('/employees/{id}/edit',[AdminController::class,'editEmployee'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/employees/{id}/edit',[AdminController::class,'updateEmployee'])->whereNumber('id')->middleware('module.enabled:employee_management');
  Route::post('/employees/{id}/assignments',[AdminController::class,'assignments'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/employees/{id}/status',[AdminController::class,'toggle'])->whereNumber('id')->middleware('module.enabled:employee_management');Route::post('/attendance/{id}/correct',[AdminController::class,'correction'])->whereNumber('id')->middleware('module.enabled:attendance_tracking');
@@ -37,6 +44,18 @@ Route::middleware(['auth','active.business','business.admin'])->group(function()
  Route::post('/rota/shifts',[RotaController::class,'store'])->middleware('module.enabled:rota_shifts');
  Route::post('/rota/shifts/{shiftId}/publish',[RotaController::class,'publish'])->whereNumber('shiftId')->middleware('module.enabled:rota_shifts');
  Route::post('/rota/shifts/{shiftId}/cancel',[RotaController::class,'delete'])->whereNumber('shiftId')->middleware('module.enabled:rota_shifts');
+ Route::get('/compliance',[ComplianceController::class,'index'])->middleware('module.enabled:compliance_tracking');
+ Route::post('/compliance/documents',[ComplianceController::class,'upload'])->middleware('module.enabled:compliance_tracking');
+ Route::get('/compliance/documents/{documentId}/download',[ComplianceController::class,'download'])->whereNumber('documentId')->middleware('module.enabled:compliance_tracking');
+ Route::post('/compliance/documents/{documentId}/review',[ComplianceController::class,'review'])->whereNumber('documentId')->middleware('module.enabled:compliance_tracking');
+ Route::post('/compliance/documents/{documentId}/delete',[ComplianceController::class,'deleteDocument'])->whereNumber('documentId')->middleware('module.enabled:compliance_tracking');
+ Route::post('/compliance/training',[ComplianceController::class,'saveTraining'])->middleware('module.enabled:compliance_tracking');
+ Route::post('/compliance/training/{trainingId}/delete',[ComplianceController::class,'deleteTraining'])->whereNumber('trainingId')->middleware('module.enabled:compliance_tracking');
+ Route::get('/notices',[NoticeController::class,'index'])->middleware('module.enabled:company_notices');
+ Route::post('/notices',[NoticeController::class,'store'])->middleware('module.enabled:company_notices');
+ Route::post('/notices/{noticeId}/draft',[NoticeController::class,'updateDraft'])->whereNumber('noticeId')->middleware('module.enabled:company_notices');
+ Route::post('/notices/{noticeId}/publish',[NoticeController::class,'publish'])->whereNumber('noticeId')->middleware('module.enabled:company_notices');
+ Route::post('/notices/{noticeId}/archive',[NoticeController::class,'archive'])->whereNumber('noticeId')->middleware('module.enabled:company_notices');
 });
 Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalidate();$r->session()->regenerateToken();return redirect('/login');})->middleware('auth');
 

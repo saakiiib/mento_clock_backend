@@ -13,3 +13,59 @@
 .story-main h1{font-size:clamp(24px,2.5vw,38px);white-space:nowrap;letter-spacing:-1.3px}
 .check-row{display:flex;align-items:center;gap:10px}.check-row input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--orange)}
 .module-grid{display:grid;gap:10px;margin:10px 0}.module-option{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:start;gap:12px;background:#fbfcfd;border:1px solid #e8ebef;border-radius:9px;padding:13px 14px;margin:0;color:#505660}.module-option input[type=checkbox]{margin:2px 0 0;width:16px;height:16px}.module-option-copy{display:grid;gap:3px}.module-option-copy strong{font-size:11px;color:#303742}.module-option-copy small{font-size:10px;line-height:1.5}.module-planned{opacity:.78}.module-option .badge{font-size:8px;white-space:nowrap}
+
+/* Client overview: module-aware workspace home */
+.module-stats{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.dashboard-stat{display:block;color:inherit;text-decoration:none;transition:transform .15s ease,border-color .15s ease}
+.dashboard-stat:hover{transform:translateY(-2px);border-color:#d7dce3;text-decoration:none}
+.dashboard-stat.needs-attention{border-color:#edc6a7;background:#fffaf5}
+.workspace-modules{margin:10px 0 26px}
+.section-intro{display:flex;justify-content:space-between;align-items:end;margin:0 0 14px}
+.section-intro h2{font-size:20px;font-weight:500;margin:0 0 5px}
+.section-intro p{font-size:11px;margin:0}
+.module-card-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.workspace-module{display:flex;align-items:flex-start;gap:13px;min-width:0;padding:19px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;color:inherit;text-decoration:none;transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease}
+.workspace-module:hover{transform:translateY(-2px);border-color:#e8c8ae;box-shadow:0 8px 22px #2834420a;text-decoration:none}
+.workspace-module>.icon{width:16px;height:16px;color:#a8afb8;margin:2px 0 0 auto;flex-shrink:0}
+.module-icon{display:grid;place-items:center;width:39px;height:39px;border-radius:10px;background:#fff3e9;color:#c06f38;flex-shrink:0}
+.module-icon .icon{width:19px;height:19px}
+.module-copy{min-width:0;flex:1}
+.module-copy>strong{display:block;font-size:12px;font-weight:600;margin:2px 0 5px}
+.module-copy>p{font-size:10px;line-height:1.6;margin:0 0 12px}
+.module-metric{display:inline-block;padding:6px 8px;border-radius:6px;background:#f7f8f9;color:#717986;font-size:9px}
+.module-metric b{color:#3e4651;font-weight:600}
+.overview-lower{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,1fr);gap:20px;align-items:start}
+.overview-lower>.card{min-width:0}
+@media(max-width:1100px){.module-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-lower{grid-template-columns:1fr}}
+@media(max-width:600px){.module-card-grid{grid-template-columns:minmax(0,1fr)}.workspace-module{padding:16px}.module-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.module-stats .stat{padding:17px 14px}.module-stats .number{font-size:26px}.section-intro h2{font-size:18px}}
+
+
+/* Client organisation profile */
+.organisation-progress{max-width:900px}
+.organisation-progress progress{width:100%;height:9px;accent-color:var(--orange)}
+.organisation-subheading{margin:24px 0 8px;font-size:13px;letter-spacing:-.01em}
+.organisation-check{margin:18px 0 10px;color:#59616c;font-size:11px}
+.organisation-check label{margin:0}
+.operating-hours{display:grid;gap:8px}
+.operating-day{display:grid;grid-template-columns:minmax(100px,1fr) auto minmax(250px,1fr);align-items:center;gap:16px;border:1px solid #eceef1;border-radius:9px;padding:11px 14px;background:#fff}
+.operating-day>strong{font-size:11px;font-weight:500}
+.closed-label{display:flex;align-items:center;gap:8px;margin:0;white-space:nowrap}
+.closed-label input{width:15px;height:15px;margin:0}
+.time-pair{display:flex;align-items:center;gap:9px;color:var(--muted)}
+.time-pair label{margin:0}
+.time-pair input{padding:8px 9px}
+.logo-upload-row{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.logo-upload-row form{display:grid;gap:11px;min-width:min(100%,360px)}
+.logo-upload-row form label{margin:0}
+.logo-upload-row form button{justify-self:start}
+.organisation-logo,.logo-placeholder{display:grid;place-items:center;width:110px;height:80px;object-fit:contain;border:1px solid var(--line);border-radius:9px;padding:8px;background:white}
+.logo-placeholder{font-size:9px;color:var(--muted);text-align:center}
+.document-upload-form{display:grid;grid-template-columns:minmax(180px,.7fr) minmax(260px,1fr) auto;gap:13px;align-items:end;margin:0 0 20px}
+.document-upload-form label{margin-top:0}
+.document-upload-form button{white-space:nowrap}
+.profile-save{max-width:900px;margin:0 0 28px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:700px){.operating-day{grid-template-columns:1fr auto}.time-pair{grid-column:1/-1}.document-upload-form{grid-template-columns:1fr}.document-upload-form button{justify-self:start}}
+
+/* Compliance, training and company notice registers */
+.badge.warning{background:#fff4e5;color:#9a5b17}.badge.success{background:#edf7f0;color:#35734b}.badge.neutral{background:#f1f2f4;color:#606873}.table-sub{display:block;margin-top:3px;max-width:420px;white-space:normal}.check-row{padding-top:14px}.check-row label{display:flex;align-items:center;gap:9px;margin:8px 0}.check-row input{flex:0 0 auto}.scroll table td{vertical-align:top}.actions details{position:relative}.actions details summary{cursor:pointer;color:#a65832;font-size:11px}.actions details form{position:absolute;z-index:3;right:0;top:24px;width:min(290px,80vw);padding:14px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px #25272b1a}.actions details input{margin-bottom:8px}.empty-state p:last-child{margin-bottom:0}

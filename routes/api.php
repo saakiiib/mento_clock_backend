@@ -1,6 +1,6 @@
 <?php
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\{ClientApiController,ClockController,LeaveController,PasswordController,ReportController,RotaController};
+use App\Http\Controllers\{ClientApiController,ClockController,LeaveController,PasswordController,ReportController,RotaController,NoticeController};
 Route::post('auth/login',[ClockController::class,'login'])->middleware('throttle:5,1');
 Route::post('auth/forgot-password',[PasswordController::class,'forgot'])->middleware('throttle:3,1');
 Route::middleware(['auth:sanctum','active.business','throttle:60,1'])->group(function(){
@@ -11,6 +11,8 @@ Route::middleware(['auth:sanctum','active.business','throttle:60,1'])->group(fun
  Route::post('leave/requests',[LeaveController::class,'submit'])->middleware('module.enabled:leave_management');
  Route::post('leave/requests/{id}/cancel',[LeaveController::class,'cancelMine'])->whereNumber('id')->middleware('module.enabled:leave_management');
  Route::get('rota',[RotaController::class,'mine'])->middleware('module.enabled:rota_shifts');
+ Route::get('notices',[NoticeController::class,'mine'])->middleware('module.enabled:company_notices');
+ Route::post('notices/{id}/acknowledge',[NoticeController::class,'acknowledge'])->whereNumber('id')->middleware('module.enabled:company_notices');
 });
 
 // Client administrators can manage only records belonging to their own business.

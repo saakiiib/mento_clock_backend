@@ -4,6 +4,7 @@ $paths = [
  'people'=>'<circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v2"/>',
  'shop'=>'<path d="m3 10 2-6h14l2 6M4 10v10h16V10M9 20v-7h6v7M3 10c0 3 4 3 4 0 0 3 5 3 5 0 0 3 5 3 5 0 0 3 4 3 4 0"/>',
  'clock'=>'<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
+ 'calendar'=>'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h3M8 17h6"/>',
  'report'=>'<path d="M6 3h9l4 4v14H6zM9 10h7M9 14h7M9 18h4"/>',
  'building'=>'<path d="M5 21V3h14v18M3 21h18M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3"/>',
  'arrow'=>'<path d="M5 12h14M14 7l5 5-5 5"/>',

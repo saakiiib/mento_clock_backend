@@ -31,14 +31,49 @@ class AdminController {
   $branches=DB::table('branches')->where('business_id',$id)->get()->map(function($branch)use($id){$branch->employee_count=$this->capacity->activeEmployeeCount($id,(int)$branch->id);$branch->employee_limit=$this->capacity->employeeLimit($id,(int)$branch->id);return $branch;});
   $employees=User::where('business_id',$id)->get();
   $records=DB::table('attendance_records as a')->join('users as u','u.id','=','a.user_id')->join('branches as b','b.id','=','a.branch_id')->where('a.business_id',$id)->orderByDesc('a.clock_in')->select('a.*','u.name as employee','b.name as branch')->limit(200)->get();
-  $section=in_array($r->path(),['people','workplaces','attendance','company'])?$r->path():'overview';
+  $section=in_array($r->path(),['people','workplaces','attendance'])?$r->path():'overview';
   $assigned=DB::table('employee_branches')->where('business_id',$id)->get()->groupBy('user_id')->map(fn($rows)=>$rows->pluck('branch_id')->all());
   $today=Carbon::now($business->timezone)->toDateString();
   $todayReport=app(\App\Services\AttendanceReport::class)->make($id,['period'=>'daily','date'=>$today]);
   $weekReport=app(\App\Services\AttendanceReport::class)->make($id,['period'=>'weekly','date'=>$today]);
   $workingCount=DB::table('attendance_records')->where('business_id',$id)->whereNull('clock_out')->count();
   $profile=DB::table('client_profiles')->where('business_id',$id)->first();
-  return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile'));
+  $organisationFields=[
+   $profile->organisation_name??$business->name,$profile->organisation_type??null,
+   ($profile->organisation_email??null)?:($profile->contact_email??null),($profile->authorised_email??null)?:($profile->contact_email??null),
+   ($profile->registered_office??null)?:(($profile->address_line_1??null)?:($profile->address??null)),$profile->operating_hours??null,
+  ];
+  $organisationProfileCompletion=(int)round(count(array_filter($organisationFields,fn($value)=>is_string($value)?trim($value)!=='':!empty($value)))/count($organisationFields)*100);
+  $moduleAccess=app(\App\Services\ModuleAccess::class);
+  $pendingLeaveCount=0;$upcomingShiftCount=0;$upcomingHolidayCount=0;$complianceDueCount=0;$unacknowledgedNoticeCount=0;
+  $localNow=Carbon::now($business->timezone);
+  if($moduleAccess->enabled($id,'leave_management'))$pendingLeaveCount=DB::table('leave_requests')->where('business_id',$id)->where('status','pending')->count();
+  if($moduleAccess->enabled($id,'rota_shifts'))$upcomingShiftCount=DB::table('rota_shifts')->where('business_id',$id)->where('status','published')->whereBetween('starts_at',[$localNow->copy()->utc()->toDateTimeString(),$localNow->copy()->addDays(7)->utc()->toDateTimeString()])->count();
+  if($moduleAccess->enabled($id,'holiday_calendar'))$upcomingHolidayCount=DB::table('business_holidays')->where('business_id',$id)->whereBetween('holiday_date',[$localNow->toDateString(),$localNow->copy()->addDays(30)->toDateString()])->count();
+  if($moduleAccess->enabled($id,'compliance_tracking')){
+   $dueDate=$localNow->copy()->addDays(60)->toDateString();
+   $complianceDueCount=DB::table('employee_documents')->where('business_id',$id)->whereNotNull('expiry_date')->where('expiry_date','<=',$dueDate)->where('status','!=','rejected')->count()
+    +DB::table('employee_training_records')->where('business_id',$id)->whereIn('status',['valid','expired'])->whereNotNull('expires_on')->where('expires_on','<=',$dueDate)->count();
+  }
+  if($moduleAccess->enabled($id,'company_notices'))$unacknowledgedNoticeCount=DB::table('company_notice_receipts as r')->join('company_notices as n','n.id','=','r.notice_id')->where('r.business_id',$id)->whereNull('r.acknowledged_at')->where('n.status','published')->where('n.acknowledgement_required',true)->where(function($q){$q->whereNull('n.publish_at')->orWhere('n.publish_at','<=',now('UTC'));})->where(function($q){$q->whereNull('n.expires_at')->orWhere('n.expires_at','>',now('UTC'));})->count();
+  $definitions=[
+   'employee_management'=>['title'=>'People','description'=>'Employee profiles, workplace access and team details.','href'=>'/people','icon'=>'people','count'=>$employees->where('role','employee')->where('active',true)->count(),'unit'=>'active employees'],
+   'attendance_tracking'=>['title'=>'Attendance','description'=>'See clock-ins and review attendance activity.','href'=>'/attendance','icon'=>'clock','count'=>$workingCount,'unit'=>'employees clocked in now'],
+   'reports_analytics'=>['title'=>'Reports','description'=>'Review hours and download workforce reports.','href'=>'/reports','icon'=>'report','count'=>number_format($weekReport['total_hours'],1),'unit'=>'hours recorded this week'],
+   'leave_management'=>['title'=>'Leave management','description'=>'Review requests, balances and employee leave.','href'=>'/leave','icon'=>'calendar','count'=>$pendingLeaveCount,'unit'=>'requests waiting for review'],
+   'holiday_calendar'=>['title'=>'Holiday calendar','description'=>'View public holidays and company closure dates.','href'=>'/calendar','icon'=>'calendar','count'=>$upcomingHolidayCount,'unit'=>'calendar dates in the next 30 days'],
+   'rota_shifts'=>['title'=>'Rota & shifts','description'=>'Plan the week and check published employee shifts.','href'=>'/rota','icon'=>'clock','count'=>$upcomingShiftCount,'unit'=>'published shifts in the next 7 days'],
+   'compliance_tracking'=>['title'=>'Compliance & training','description'=>'Review private employee records, renewals and training.','href'=>'/compliance','icon'=>'shield','count'=>$complianceDueCount,'unit'=>'records due or expired'],
+   'company_notices'=>['title'=>'Company notices','description'=>'Share team updates and follow required acknowledgements.','href'=>'/notices','icon'=>'report','count'=>$unacknowledgedNoticeCount,'unit'=>'acknowledgements outstanding'],
+  ];
+  $overviewModules=[];$overviewStats=[];
+  foreach($definitions as $code=>$module){
+   if(!$moduleAccess->enabled($id,$code))continue;
+   $overviewModules[]=['code'=>$code,...$module];
+   if(in_array($code,['employee_management','attendance_tracking','leave_management','rota_shifts','compliance_tracking','company_notices'],true))$overviewStats[]=['title'=>$module['title'],'count'=>$module['count'],'unit'=>$module['unit'],'icon'=>$module['icon'],'href'=>$module['href'],'attention'=>in_array($code,['leave_management','compliance_tracking','company_notices'],true)&&$module['count']>0];
+  }
+  $overviewModules[]=['code'=>'organisation_profile','title'=>'Organisation profile','description'=>'Keep your legal details, contacts, working hours and business documents up to date.','href'=>'/company','icon'=>'building','count'=>$organisationProfileCompletion,'unit'=>'% complete'];
+  return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile','overviewModules','overviewStats','pendingLeaveCount','upcomingShiftCount','upcomingHolidayCount','complianceDueCount','unacknowledgedNoticeCount','organisationProfileCompletion'));
  }
  private function employeeProfileRules(int $businessId): array {
   $authority=Rule::exists('users','id')->where('business_id',$businessId)->where('active',true);

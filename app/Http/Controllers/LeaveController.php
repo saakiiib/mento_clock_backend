@@ -65,10 +65,17 @@ class LeaveController
         $today = CarbonImmutable::now($this->timezone($businessId))->startOfDay();
         $holidays = DB::table('business_holidays')->where('business_id', $businessId)
             ->whereBetween('holiday_date', [$today->subYear()->toDateString(), $today->addYears(2)->toDateString()])
+            ->whereIn('region', ['all', 'local', $policy->holiday_region])
             ->orderBy('holiday_date')->get();
         $adminEvents = DB::table('leave_admin_events as e')->leftJoin('users as u', function ($join) use ($businessId) {
             $join->on('u.id', '=', 'e.actor_id')->where('u.business_id', '=', $businessId);
         })->where('e.business_id', $businessId)->select('e.*', 'u.name as actor_name')->orderByDesc('e.id')->limit(40)->get();
+        $editRequest = null;
+        if ($request->filled('edit_leave')) {
+            abort_unless(app(\App\Services\WorkspacePermissions::class)->has($request->user(), 'leave.manage'), 403);
+            $editRequest = DB::table('leave_requests')->where('business_id', $businessId)
+                ->where('id', (int) $request->query('edit_leave'))->whereIn('status', ['pending', 'approved'])->firstOrFail();
+        }
         $calendarHolidays = $holidays->map(static fn ($holiday) => [
             'date' => (string) $holiday->holiday_date, 'name' => $holiday->name,
             'region' => $holiday->region, 'closed' => (bool) $holiday->is_closure,
@@ -85,7 +92,7 @@ class LeaveController
                 })->values()->all();
             });
 
-        return view('leave.index', compact('policy', 'employees', 'balances', 'requests', 'holidays', 'calendarHolidays', 'calendarShifts', 'adminEvents', 'tab'));
+        return view('leave.index', compact('policy', 'employees', 'balances', 'requests', 'holidays', 'calendarHolidays', 'calendarShifts', 'adminEvents', 'editRequest', 'tab'));
     }
 
     public function calendar(Request $request)
@@ -210,6 +217,84 @@ class LeaveController
 
         $employeeName = DB::table('users')->where('business_id', $businessId)->where('id', $values['employee_id'])->value('name');
         return back()->with('status', 'Leave booked and approved for '.$employeeName.'.');
+    }
+
+    public function updateRequest(Request $request, int $requestId)
+    {
+        $businessId = $this->businessId($request);
+        $values = $request->validate([
+            'employee_id' => ['required', 'integer', Rule::exists('users', 'id')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)],
+            'leave_type' => ['required', Rule::in(LeaveManagement::TYPES)],
+            'start_date' => 'required|date_format:Y-m-d', 'end_date' => 'required|date_format:Y-m-d|after_or_equal:start_date',
+            'reason' => 'nullable|string|max:2000', 'confirm_booking' => 'required|accepted',
+        ]);
+        $start = $this->date($values['start_date'], $businessId);
+        $end = $this->date($values['end_date'], $businessId);
+        if ($start->diffInDays($end) > 365) throw ValidationException::withMessages(['end_date' => 'A booking cannot be longer than one year.']);
+        $this->leave->assertWithinLeaveYear($businessId, $start, $end);
+
+        DB::transaction(function () use ($request, $requestId, $businessId, $values, $start, $end) {
+            $record = DB::table('leave_requests')->where('business_id', $businessId)->where('id', $requestId)->lockForUpdate()->first();
+            abort_unless($record, 404);
+            if (!in_array($record->status, ['pending', 'approved'], true)) {
+                throw ValidationException::withMessages(['request' => 'Only pending or approved leave can be edited.']);
+            }
+            $employee = DB::table('users')->where('business_id', $businessId)->where('id', $values['employee_id'])
+                ->where('role', 'employee')->where('active', true)->lockForUpdate()->first();
+            abort_unless($employee, 404);
+            $count = $this->leave->countWorkingDays($businessId, (int) $employee->id, $start, $end);
+            if ($count['days'] <= 0) throw ValidationException::withMessages(['start_date' => 'The selected dates contain no working days for this employee.']);
+            $this->leave->assertNoOverlap($businessId, (int) $employee->id, $start, $end, $requestId);
+            $this->rota->assertLeaveCanBeApproved($businessId, (int) $employee->id, $start, $end);
+
+            if ($values['leave_type'] === 'annual') {
+                $balance = $this->leave->balance($businessId, (int) $employee->id, $start, $requestId);
+                if ($balance['entitlement'] <= 0) throw ValidationException::withMessages(['leave_type' => 'Configure this employee’s annual leave entitlement before booking annual leave.']);
+                if ($count['days'] > $balance['remaining']) throw ValidationException::withMessages(['end_date' => 'This change exceeds the employee’s remaining annual leave balance.']);
+            }
+
+            $before = (array) $record;
+            $after = [
+                'user_id' => (int) $employee->id, 'leave_type' => $values['leave_type'],
+                'start_date' => $values['start_date'], 'end_date' => $values['end_date'],
+                'working_days' => $count['days'], 'reason' => $values['reason'] ?? null, 'status' => $record->status,
+            ];
+            DB::table('leave_requests')->where('business_id', $businessId)->where('id', $requestId)
+                ->update([...$after, 'updated_at' => now('UTC')]);
+            DB::table('leave_request_events')->insert([
+                'business_id' => $businessId, 'leave_request_id' => $requestId, 'actor_id' => $request->user()->id,
+                'action' => 'edited', 'from_status' => $record->status, 'to_status' => $record->status,
+                'note' => 'Leave details updated by an administrator.', 'created_at' => now('UTC'),
+            ]);
+            $this->adminEvent($request, $businessId, 'leave_request', $requestId, 'employee_leave_updated', $before, $after);
+        });
+
+        return redirect('/leave')->with('status', 'Leave booking updated. The employee’s balance has been recalculated.');
+    }
+
+    public function cancelByAdmin(Request $request, int $requestId)
+    {
+        $businessId = $this->businessId($request);
+        $values = $request->validate(['cancellation_note' => 'required|string|max:1000']);
+        DB::transaction(function () use ($request, $requestId, $businessId, $values) {
+            $record = DB::table('leave_requests')->where('business_id', $businessId)->where('id', $requestId)->lockForUpdate()->first();
+            abort_unless($record, 404);
+            if (!in_array($record->status, ['pending', 'approved'], true)) {
+                throw ValidationException::withMessages(['request' => 'Only pending or approved leave can be cancelled.']);
+            }
+            $before = (array) $record;
+            DB::table('leave_requests')->where('business_id', $businessId)->where('id', $requestId)
+                ->update(['status' => 'cancelled', 'updated_at' => now('UTC')]);
+            DB::table('leave_request_events')->insert([
+                'business_id' => $businessId, 'leave_request_id' => $requestId, 'actor_id' => $request->user()->id,
+                'action' => 'cancelled', 'from_status' => $record->status, 'to_status' => 'cancelled',
+                'note' => $values['cancellation_note'], 'created_at' => now('UTC'),
+            ]);
+            $this->adminEvent($request, $businessId, 'leave_request', $requestId, 'employee_leave_cancelled', $before,
+                ['status' => 'cancelled', 'cancellation_note' => $values['cancellation_note']]);
+        });
+
+        return back()->with('status', 'Leave booking cancelled. The employee’s allowance has been released.');
     }
 
     public function storeHoliday(Request $request)

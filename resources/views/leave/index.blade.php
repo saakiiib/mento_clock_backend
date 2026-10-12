@@ -1,6 +1,7 @@
 @extends('layout')
 @section('title', $tab === 'calendar' ? 'Holiday calendar' : 'Leave management')
 @section('content')
+@php $canManageLeave = app(\App\Services\WorkspacePermissions::class)->has(auth()->user(),'leave.manage'); @endphp
 <div class="page-heading"><div><span class="eyebrow">People</span><h1>{{$tab === 'calendar' ? 'Holiday calendar' : 'Leave management'}}</h1><p>{{$tab === 'calendar' ? 'Keep your company closures and regional holidays in one place.' : 'Set leave rules, review requests and keep employee balances visible.'}}</p></div><div class="actions">@if(app(\App\Services\ModuleAccess::class)->enabled((int)auth()->user()->business_id,'leave_management'))<a class="button secondary" href="{{url('/leave')}}">Leave management</a>@endif @if(app(\App\Services\ModuleAccess::class)->enabled((int)auth()->user()->business_id,'holiday_calendar'))<a class="button secondary" href="{{url('/calendar')}}">Holiday calendar</a>@endif</div></div>
 
 @if($tab === 'leave')
@@ -28,17 +29,17 @@
 @endif
 
 @if(app(\App\Services\WorkspacePermissions::class)->has(auth()->user(),'leave.manage'))
-<section class="card">
-    <div class="card-head"><div><h2>Book leave for an employee</h2><p>Use this when a manager is entering a leave booking on the employee’s behalf.</p></div></div>
+<section class="card" id="book-leave">
+    <div class="card-head"><div><h2>{{$editRequest ? 'Edit leave booking' : 'Book leave for an employee'}}</h2><p>{{$editRequest ? 'Update the employee, dates or leave details. The balance and rota checks will run again before saving.' : 'Use this when a manager is entering a leave booking on the employee’s behalf.'}}</p></div></div>
     <div class="note" style="margin:0 0 18px">Booking creates an approved leave record immediately. Annual leave is checked against the employee’s remaining configured allowance. Existing leave and rota conflicts are checked before saving; applicable public holidays are excluded from counted working days.</div>
-    <form method="post" action="{{url('/leave/requests/book')}}">@csrf
+    <form method="post" action="{{$editRequest ? url('/leave/requests/'.$editRequest->id.'/edit') : url('/leave/requests/book')}}">@csrf
         <div class="form-two">
-            <div><label for="book_leave_employee">Employee</label><select id="book_leave_employee" name="employee_id" required data-leave-employee><option value="">Choose an employee</option>@foreach($employees as $employee)@php $calendarWorkDays = $employee->working_days ? json_decode($employee->working_days, true) : ['mon','tue','wed','thu','fri']; @endphp<option value="{{$employee->id}}" data-working-days="{{json_encode(is_array($calendarWorkDays) ? $calendarWorkDays : ['mon','tue','wed','thu','fri'])}}" data-shifts="{{json_encode($calendarShifts->get($employee->id, []))}}" @selected((string)old('employee_id') === (string)$employee->id)>{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></div>
-            <div><label for="book_leave_type">Leave type</label><select id="book_leave_type" name="leave_type" required>@foreach(['annual'=>'Annual leave','sick'=>'Sick leave','unpaid'=>'Unpaid leave','compassionate'=>'Compassionate leave','other'=>'Other'] as $value=>$label)<option value="{{$value}}" @selected(old('leave_type','annual') === $value)>{{$label}}</option>@endforeach</select></div>
+            <div><label for="book_leave_employee">Employee</label><select id="book_leave_employee" name="employee_id" required data-leave-employee><option value="">Choose an employee</option>@foreach($employees as $employee)@php $calendarWorkDays = $employee->working_days ? json_decode($employee->working_days, true) : ['mon','tue','wed','thu','fri']; @endphp<option value="{{$employee->id}}" data-working-days="{{json_encode(is_array($calendarWorkDays) ? $calendarWorkDays : ['mon','tue','wed','thu','fri'])}}" data-shifts="{{json_encode($calendarShifts->get($employee->id, []))}}" @selected((string)old('employee_id',$editRequest->user_id ?? '') === (string)$employee->id)>{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></div>
+            <div><label for="book_leave_type">Leave type</label><select id="book_leave_type" name="leave_type" required>@foreach(['annual'=>'Annual leave','sick'=>'Sick leave','unpaid'=>'Unpaid leave','compassionate'=>'Compassionate leave','other'=>'Other'] as $value=>$label)<option value="{{$value}}" @selected(old('leave_type',$editRequest->leave_type ?? 'annual') === $value)>{{$label}}</option>@endforeach</select></div>
             <div style="grid-column:1/-1" data-leave-calendar data-region="{{$policy->holiday_region}}" data-holidays="{{json_encode($calendarHolidays)}}">
                 <label>Holiday dates</label>
-                <input id="book_leave_start" type="hidden" name="start_date" value="{{old('start_date')}}">
-                <input id="book_leave_end" type="hidden" name="end_date" value="{{old('end_date')}}">
+                <input id="book_leave_start" type="hidden" name="start_date" value="{{old('start_date',$editRequest->start_date ?? '')}}">
+                <input id="book_leave_end" type="hidden" name="end_date" value="{{old('end_date',$editRequest->end_date ?? '')}}">
                 <button type="button" class="secondary" data-calendar-toggle aria-expanded="false">Choose dates</button>
                 <span class="caption" data-calendar-summary aria-live="polite">Choose an employee, then select the first and last date.</span>
                 <div class="leave-calendar-panel" data-calendar-panel hidden>
@@ -50,10 +51,10 @@
                     <button type="button" class="secondary" data-calendar-done>Done</button>
                 </div>
             </div>
-            <div style="grid-column:1/-1"><label for="book_leave_reason">Reason or note (optional)</label><textarea id="book_leave_reason" name="reason" rows="2" maxlength="2000">{{old('reason')}}</textarea></div>
+            <div style="grid-column:1/-1"><label for="book_leave_reason">Reason or note (optional)</label><textarea id="book_leave_reason" name="reason" rows="2" maxlength="2000">{{old('reason',$editRequest->reason ?? '')}}</textarea></div>
         </div>
-        <div class="check-row"><label><input type="checkbox" name="confirm_booking" value="1" required @checked(old('confirm_booking'))> I confirm this booking was agreed with the employee and should be approved now.</label></div>
-        <div class="form-actions"><button>Book and approve leave</button></div>
+        <div class="check-row"><label><input type="checkbox" name="confirm_booking" value="1" required @checked(old('confirm_booking'))> I confirm this booking or change was agreed with the employee.</label></div>
+        <div class="form-actions"><button>{{$editRequest ? 'Save leave changes' : 'Book and approve leave'}}</button>@if($editRequest)<a class="button secondary" href="{{url('/leave')}}">Stop editing</a>@endif</div>
     </form>
 </section>
 @endif
@@ -77,7 +78,7 @@
     <div class="card-head"><div><h2>Leave requests</h2><p>Requests are scoped to this workspace. Every review decision is recorded.</p></div></div>
     <div class="scroll"><table><thead><tr><th>Employee</th><th>Type and dates</th><th>Days</th><th>Status</th><th>Reason / review note</th><th>Action</th></tr></thead><tbody>
     @forelse($requests as $item)
-        <tr><td><strong>{{$item->employee_name}}</strong><small><br>{{$item->employee_code ?: ''}}</small></td><td>{{ucfirst($item->leave_type)}}<small><br>{{Carbon\Carbon::parse($item->start_date)->format('d M Y')}} – {{Carbon\Carbon::parse($item->end_date)->format('d M Y')}}</small></td><td>{{number_format((float)$item->working_days,1)}}</td><td><span class="badge {{$item->status === 'pending' ? 'neutral' : ($item->status === 'rejected' || $item->status === 'cancelled' ? 'inactive' : '')}}">{{ucfirst($item->status)}}</span>@if($item->reviewer_name)<small><br>by {{$item->reviewer_name}}</small>@endif</td><td style="white-space:normal;max-width:240px">{{$item->reason ?: '—'}}@if($item->review_note)<small><br>{{$item->review_note}}</small>@endif</td><td>@if($item->status === 'pending')<form method="post" action="{{url('/leave/requests/'.$item->id.'/review')}}">@csrf<label>Optional note</label><input name="review_note" maxlength="2000"><div class="actions" style="margin-top:8px"><button name="decision" value="approved">Approve</button><button class="danger" name="decision" value="rejected">Decline</button></div></form>@else — @endif</td></tr>
+        <tr><td><strong>{{$item->employee_name}}</strong><small><br>{{$item->employee_code ?: ''}}</small></td><td>{{ucfirst($item->leave_type)}}<small><br>{{Carbon\Carbon::parse($item->start_date)->format('d M Y')}} – {{Carbon\Carbon::parse($item->end_date)->format('d M Y')}}</small></td><td>{{number_format((float)$item->working_days,1)}}</td><td><span class="badge {{$item->status === 'pending' ? 'neutral' : ($item->status === 'rejected' || $item->status === 'cancelled' ? 'inactive' : '')}}">{{ucfirst($item->status)}}</span>@if($item->reviewer_name)<small><br>by {{$item->reviewer_name}}</small>@endif</td><td style="white-space:normal;max-width:240px">{{$item->reason ?: '—'}}@if($item->review_note)<small><br>{{$item->review_note}}</small>@endif</td><td>@if($canManageLeave)<div class="leave-row-actions">@if($item->status === 'pending')<form method="post" action="{{url('/leave/requests/'.$item->id.'/review')}}">@csrf<label>Optional note</label><input name="review_note" maxlength="2000"><div class="actions" style="margin-top:8px"><button name="decision" value="approved">Approve</button><button class="danger" name="decision" value="rejected">Decline</button></div></form>@endif @if(in_array($item->status,['pending','approved'],true))<a class="button secondary" href="{{url('/leave?edit_leave='.$item->id.'#book-leave')}}">Edit</a><details><summary>Cancel</summary><form method="post" action="{{url('/leave/requests/'.$item->id.'/cancel')}}" class="leave-cancel-form">@csrf<label>Why is this leave being cancelled?</label><input name="cancellation_note" maxlength="1000" required><button class="danger">Confirm cancellation</button></form></details>@endif</div>@else — @endif</td></tr>
     @empty<tr><td colspan="6"><div class="empty-state"><h3>No leave requests yet.</h3><p>Employee requests submitted from the existing app will appear here.</p></div></td></tr>@endforelse
     </tbody></table></div>
 </section>

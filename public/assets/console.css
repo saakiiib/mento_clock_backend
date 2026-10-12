@@ -206,3 +206,27 @@ button:disabled{cursor:not-allowed;opacity:.55}
 .leave-calendar-count{margin:8px 0 12px;font-weight:650}
 @media(max-width:520px){.leave-calendar-panel{padding:11px}.leave-calendar-grid{grid-auto-rows:38px;gap:3px}.leave-calendar-day{font-size:13px}}
 .leave-calendar-panel[hidden]{display:none!important}
+
+/* Rota manager grid and batch entry */
+.rota-grid-hint{margin:-8px 0 14px;color:var(--muted)}
+.rota-grid-scroll{border:1px solid var(--line);border-radius:12px}
+.rota-grid{min-width:1180px;table-layout:fixed;border-collapse:separate;border-spacing:0}
+.rota-grid th,.rota-grid td{vertical-align:top;padding:10px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.rota-grid tr:last-child>*{border-bottom:0}.rota-grid tr>*:last-child{border-right:0}
+.rota-grid thead th:first-child{width:175px}
+.rota-day-heading{background:#f7f8fa}.rota-day-heading strong,.rota-day-heading span,.rota-day-heading small,.rota-employee-cell strong,.rota-employee-cell small{display:block}
+.rota-day-heading span,.rota-employee-cell small{margin-top:3px;color:var(--muted);font-size:12px}
+.rota-day-closure{margin-top:5px;color:#9a4c21;white-space:normal}
+.rota-day-cell{min-width:140px;background:#fff}
+.rota-empty-cell{color:#a8afb8}
+.rota-shift-card{display:grid;gap:5px;margin:0 0 7px;padding:9px;border:1px solid #e3e7ec;border-left:3px solid #5d83dc;border-radius:9px;background:#f8faff;font-size:12px}
+.rota-shift-card:last-child{margin-bottom:0}.rota-shift-card.is-cancelled{border-left-color:#9da3ab;background:#f4f4f4;opacity:.72}
+.rota-shift-card-head,.rota-shift-actions{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.rota-shift-card .badge{font-size:10px;padding:3px 6px}.rota-shift-time{font-weight:700;font-size:13px}.rota-shift-card>small{color:var(--muted)}
+.rota-shift-edit summary{cursor:pointer;color:#315fbd;font-weight:650}.rota-shift-edit form{display:grid;gap:8px;margin-top:9px}.rota-shift-edit label{font-size:11px}.rota-shift-edit input,.rota-shift-edit select{min-width:0;padding:7px;font-size:12px}
+.rota-shift-actions form{margin:0}.rota-shift-actions button,.rota-shift-card>form button{padding:6px 8px;font-size:11px}
+.rota-batch-list{display:grid;gap:12px}.rota-batch-row{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));align-items:end;gap:12px;padding:16px;border:1px solid var(--line);border-radius:12px;background:#fbfcfd}
+.rota-batch-row label{margin:0}.rota-batch-row button{min-height:42px}
+.leave-row-actions{display:grid;gap:10px;min-width:170px}.leave-row-actions>form{margin:0}.leave-row-actions details summary{cursor:pointer;color:#a5332b;font-weight:650}.leave-cancel-form{display:grid;gap:7px;margin-top:8px}.leave-cancel-form label{font-size:12px}
+@media(max-width:800px){.rota-batch-row{grid-template-columns:repeat(2,minmax(130px,1fr))}}
+@media(max-width:480px){.rota-batch-row{grid-template-columns:1fr}.leave-row-actions{min-width:140px}}

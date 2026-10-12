@@ -38,12 +38,16 @@ Route::middleware(['auth','active.business','workspace.access'])->group(function
  Route::post('/leave/policy',[LeaveController::class,'savePolicy'])->middleware(['module.enabled:leave_management','role.permission:leave.manage']);
  Route::post('/leave/employees/{employeeId}',[LeaveController::class,'saveEmployeeProfile'])->whereNumber('employeeId')->middleware(['module.enabled:leave_management','role.permission:leave.manage']);
  Route::post('/leave/requests/book',[LeaveController::class,'bookForEmployee'])->middleware(['module.enabled:leave_management','role.permission:leave.manage']);
+ Route::post('/leave/requests/{requestId}/edit',[LeaveController::class,'updateRequest'])->whereNumber('requestId')->middleware(['module.enabled:leave_management','role.permission:leave.manage']);
+ Route::post('/leave/requests/{requestId}/cancel',[LeaveController::class,'cancelByAdmin'])->whereNumber('requestId')->middleware(['module.enabled:leave_management','role.permission:leave.manage']);
  Route::post('/calendar/holidays',[LeaveController::class,'storeHoliday'])->middleware(['module.enabled:holiday_calendar','role.permission:leave.manage']);
  Route::post('/calendar/holidays/{holidayId}/delete',[LeaveController::class,'deleteHoliday'])->whereNumber('holidayId')->middleware(['module.enabled:holiday_calendar','role.permission:leave.manage']);
  Route::post('/leave/requests/{requestId}/review',[LeaveController::class,'review'])->whereNumber('requestId')->middleware(['module.enabled:leave_management','role.permission:leave.manage']);
  Route::get('/rota',[RotaController::class,'index'])->middleware(['module.enabled:rota_shifts','role.permission:rota.view']);
  Route::get('/rota/export',[RotaController::class,'export'])->middleware(['module.enabled:rota_shifts','role.permission:rota.view']);
  Route::post('/rota/shifts',[RotaController::class,'store'])->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
+ Route::post('/rota/shifts/batch',[RotaController::class,'storeBatch'])->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
+ Route::post('/rota/publish-week',[RotaController::class,'publishWeek'])->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
  Route::post('/rota/shifts/{shiftId}',[RotaController::class,'updateDraft'])->whereNumber('shiftId')->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
  Route::post('/rota/shifts/{shiftId}/publish',[RotaController::class,'publish'])->whereNumber('shiftId')->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
  Route::post('/rota/shifts/{shiftId}/cancel',[RotaController::class,'delete'])->whereNumber('shiftId')->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);

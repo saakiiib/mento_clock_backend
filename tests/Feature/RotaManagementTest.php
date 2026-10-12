@@ -59,6 +59,79 @@ class RotaManagementTest extends TestCase
         $this->assertDatabaseHas('rota_shifts', ['id' => $shiftId, 'status' => 'cancelled']);
     }
 
+    public function test_manager_can_create_multiple_checked_draft_shifts_in_one_submission(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('batch');
+        $shift = ['user_id' => $employee->id, 'title' => 'Day shift', 'break_minutes' => 15];
+        $this->actingAs($admin, 'web')->post('/rota/shifts/batch', ['shifts' => [
+            $shift + ['starts_at' => '2026-10-12T09:00', 'ends_at' => '2026-10-12T17:00'],
+            $shift + ['starts_at' => '2026-10-13T09:00', 'ends_at' => '2026-10-13T17:00'],
+        ]])->assertRedirect()->assertSessionHas('status', '2 draft shifts saved. Review the week and publish when ready.');
+
+        $this->assertDatabaseCount('rota_shifts', 2);
+        $this->assertDatabaseHas('rota_shifts', ['business_id' => $businessId, 'user_id' => $employee->id, 'status' => 'draft']);
+        $this->assertDatabaseCount('rota_events', 2);
+    }
+
+    public function test_rota_manager_page_uses_an_employee_by_day_grid_and_batch_entry(): void
+    {
+        [, $admin, $employee] = $this->workspace('manager-grid');
+        $this->actingAs($admin, 'web')->get('/rota?week=2026-10-12')->assertOk()
+            ->assertSee('Each row is an employee and each column is a day.')
+            ->assertSee($employee->name)->assertSee('Mon')->assertSee('Sun')
+            ->assertSee('Add shifts to this rota')->assertSee('Add another shift')
+            ->assertSee('Templates')->assertSee('Employee availability');
+    }
+
+    public function test_batch_rota_creation_rolls_back_all_rows_when_any_shift_conflicts(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('batch-conflict');
+        $shift = ['user_id' => $employee->id, 'title' => 'Day shift', 'break_minutes' => 0, 'starts_at' => '2026-10-12T09:00', 'ends_at' => '2026-10-12T17:00'];
+        $this->actingAs($admin, 'web')->post('/rota/shifts/batch', ['shifts' => [$shift, $shift]])
+            ->assertSessionHasErrors('starts_at');
+
+        $this->assertDatabaseCount('rota_shifts', 0);
+        $this->assertDatabaseCount('rota_events', 0);
+    }
+
+    public function test_manager_can_publish_all_drafts_for_the_selected_week(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('publish-week');
+        foreach (['2026-10-12 09:00:00', '2026-10-13 09:00:00'] as $start) {
+            $end = CarbonImmutable::parse($start)->addHours(8)->toDateTimeString();
+            DB::table('rota_shifts')->insert([
+                'business_id' => $businessId, 'user_id' => $employee->id, 'title' => 'Day shift',
+                'starts_at' => $start, 'ends_at' => $end, 'break_minutes' => 0,
+                'status' => 'draft', 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($admin, 'web')->post('/rota/publish-week', ['week' => '2026-10-12'])
+            ->assertRedirect()->assertSessionHas('status', '2 shifts published. Employees can now see their rota in the app.');
+
+        $this->assertDatabaseCount('rota_shifts', 2);
+        $this->assertSame(2, DB::table('rota_shifts')->where('business_id', $businessId)->where('status', 'published')->count());
+        $this->assertDatabaseCount('rota_events', 2);
+    }
+
+    public function test_weekly_publish_is_all_or_nothing_when_any_draft_conflicts(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('publish-conflict');
+        foreach (range(1, 2) as $index) {
+            DB::table('rota_shifts')->insert([
+                'business_id' => $businessId, 'user_id' => $employee->id, 'title' => 'Overlapping shift '.$index,
+                'starts_at' => '2026-10-12 09:00:00', 'ends_at' => '2026-10-12 17:00:00',
+                'break_minutes' => 0, 'status' => 'draft', 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($admin, 'web')->post('/rota/publish-week', ['week' => '2026-10-12'])
+            ->assertSessionHasErrors('starts_at');
+
+        $this->assertSame(2, DB::table('rota_shifts')->where('business_id', $businessId)->where('status', 'draft')->count());
+        $this->assertDatabaseCount('rota_events', 0);
+    }
+
     public function test_weekly_rota_pdf_is_an_employee_day_grid_with_optional_breaks_and_business_header(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('print');

@@ -10,19 +10,34 @@
 </div>
 
 <section class="card">
-    <div class="card-head"><div><h2>Week starting {{ $start->format('d M Y') }}</h2><p>Times shown in {{ $timezone }}. Draft shifts are visible to managers only.</p></div><div class="actions"><a class="button secondary" href="{{url('/rota?week='.$start->subWeek()->toDateString())}}">← Previous week</a><a class="button secondary" href="{{url('/rota?week='.$start->addWeek()->toDateString())}}">Next week →</a></div></div>
-    <div class="scroll"><table><thead><tr><th>Day / time</th><th>Employee</th><th>Shift</th><th>Workplace</th><th>Break</th><th>Status</th><th>Action</th></tr></thead><tbody>
-    @forelse($shifts as $shift)
-        @php $shiftStart = Carbon\Carbon::parse($shift->starts_at, 'UTC')->setTimezone($timezone); $shiftEnd = Carbon\Carbon::parse($shift->ends_at, 'UTC')->setTimezone($timezone); @endphp
-        <tr><td><strong>{{$shiftStart->format('D, d M')}}</strong><small><br>{{$shiftStart->format('H:i')}}–{{$shiftEnd->format('H:i')}}</small></td><td><strong>{{$shift->employee_name}}</strong><small><br>{{$shift->employee_code ?: ''}}</small></td><td>{{$shift->title}}</td><td>{{$shift->branch_name ?: '—'}}</td><td>{{$shift->break_minutes}} min</td><td><span class="badge {{$shift->status === 'cancelled' ? 'inactive' : ($shift->status === 'draft' ? 'neutral' : '')}}">{{ucfirst($shift->status)}}</span></td><td><div class="actions">@if($shift->status === 'draft')<details><summary>Edit draft</summary><form method="post" action="{{url('/rota/shifts/'.$shift->id)}}" class="form-two">@csrf
-            <label>Employee<select name="user_id" required>@foreach($employees as $employee)<option value="{{$employee->id}}" @selected((int)$employee->id === (int)$shift->user_id)>{{$employee->name}}</option>@endforeach</select></label>
-            <label>Workplace<select name="branch_id"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}" @selected((int)$branch->id === (int)$shift->branch_id)>{{$branch->name}}</option>@endforeach</select></label>
-            <label>Shift title<input name="title" maxlength="120" value="{{$shift->title}}" required></label>
-            <label>Unpaid break (minutes)<input name="break_minutes" type="number" min="0" max="600" value="{{$shift->break_minutes}}" required></label>
-            <label>Starts<input name="starts_at" type="datetime-local" value="{{$shiftStart->format('Y-m-d\\TH:i')}}" required></label>
-            <label>Ends<input name="ends_at" type="datetime-local" value="{{$shiftEnd->format('Y-m-d\\TH:i')}}" required></label>
-            <label>Notes<input name="notes" maxlength="2000" value="{{$shift->notes}}"></label><button>Save draft</button></form></details><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/publish')}}">@csrf<button>Publish</button></form>@endif @if($shift->status !== 'cancelled')<form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this shift? The change will be recorded.">@csrf<button class="danger">Cancel</button></form>@endif</div></td></tr>
-    @empty<tr><td colspan="7"><div class="empty-state"><h3>No shifts for this week.</h3><p>Add a draft shift below to start planning.</p></div></td></tr>@endforelse
+    <div class="card-head"><div><h2>Week starting {{ $start->format('d M Y') }}</h2><p>Times shown in {{ $timezone }}. Draft shifts are visible to managers only.</p></div><div class="actions"><a class="button secondary" href="{{url('/rota?week='.$start->subWeek()->toDateString())}}">← Previous week</a><a class="button secondary" href="{{url('/rota?week='.$start->addWeek()->toDateString())}}">Next week →</a>@if($draftCount)<form method="post" action="{{url('/rota/publish-week')}}" data-confirm="Publish all {{$draftCount}} draft shifts for this week? Employees will be able to see them in the app.">@csrf<input type="hidden" name="week" value="{{$start->toDateString()}}"><button>Publish all {{$draftCount}} drafts</button></form>@endif</div></div>
+    <p class="rota-grid-hint">Each row is an employee and each column is a day. Add several shifts below or reuse a weekly template.</p>
+    <div class="scroll rota-grid-scroll"><table class="rota-grid"><thead><tr><th>Employee</th>@foreach($weekDays as $day)<th class="rota-day-heading"><strong>{{$day->format('D')}}</strong><span>{{$day->format('d M')}}</span>@foreach($holidays->where('holiday_date',$day->toDateString()) as $holiday)<small class="rota-day-closure">{{$holiday->is_closure ? 'Closed · ' : ''}}{{$holiday->name}}</small>@endforeach</th>@endforeach</tr></thead><tbody>
+    @forelse($employees as $employee)
+        <tr><th class="rota-employee-cell"><strong>{{$employee->name}}</strong><small>{{$employee->employee_code ?: 'Employee'}}</small></th>
+        @foreach($weekDays as $day)
+            <td class="rota-day-cell">
+                @forelse($shiftGrid[$employee->id][$day->toDateString()] ?? [] as $shift)
+                    <article class="rota-shift-card {{$shift->status === 'cancelled' ? 'is-cancelled' : ''}}">
+                        <div class="rota-shift-card-head"><strong>{{$shift->title}}</strong><span class="badge {{$shift->status === 'cancelled' ? 'inactive' : ($shift->status === 'draft' ? 'neutral' : 'success')}}">{{ucfirst($shift->status)}}</span></div>
+                        <span class="rota-shift-time">{{$shift->local_start->format('H:i')}}–{{$shift->local_end->format('H:i')}}@unless($shift->local_start->isSameDay($shift->local_end)) +1 day @endunless</span>
+                        <small>{{$shift->branch_name ?: 'No workplace'}} · Break {{$shift->break_minutes}} min</small>
+                        @if($shift->status === 'draft')<details class="rota-shift-edit"><summary>Edit</summary><form method="post" action="{{url('/rota/shifts/'.$shift->id)}}">@csrf
+                            <label>Employee<select name="user_id" required>@foreach($employees as $option)<option value="{{$option->id}}" @selected((int)$option->id === (int)$shift->user_id)>{{$option->name}}</option>@endforeach</select></label>
+                            <label>Workplace<select name="branch_id"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}" @selected((int)$branch->id === (int)$shift->branch_id)>{{$branch->name}}</option>@endforeach</select></label>
+                            <label>Shift title<input name="title" maxlength="120" value="{{$shift->title}}" required></label>
+                            <label>Break minutes<input name="break_minutes" type="number" min="0" max="600" value="{{$shift->break_minutes}}" required></label>
+                            <label>Starts<input name="starts_at" type="datetime-local" value="{{$shift->local_start->format('Y-m-d\\TH:i')}}" required></label>
+                            <label>Ends<input name="ends_at" type="datetime-local" value="{{$shift->local_end->format('Y-m-d\\TH:i')}}" required></label>
+                            <label>Notes<input name="notes" maxlength="2000" value="{{$shift->notes}}"></label><button class="secondary">Save draft</button></form></details>
+                            <div class="rota-shift-actions"><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/publish')}}">@csrf<button>Publish</button></form><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this shift? The change will be recorded.">@csrf<button class="danger">Cancel</button></form></div>
+                        @elseif($shift->status === 'published')<form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this published shift? The employee’s rota will be updated and the change recorded.">@csrf<button class="danger">Cancel shift</button></form>@endif
+                    </article>
+                @empty<span class="rota-empty-cell">—</span>@endforelse
+            </td>
+        @endforeach
+        </tr>
+    @empty<tr><td colspan="8"><div class="empty-state"><h3>No active employees yet.</h3><p>Add employees before planning a rota.</p></div></td></tr>@endforelse
     </tbody></table></div>
 </section>
 
@@ -38,18 +53,31 @@
 @endif
 
 <section class="card">
-    <div class="card-head"><div><h2>Add a shift</h2><p>Shifts are saved as drafts first. The system blocks overlaps with pending or approved leave, business closures and the employee’s other shifts.</p></div></div>
-    <form method="post" action="{{url('/rota/shifts')}}">@csrf
-        <div class="form-two">
-            <div><label for="user_id">Employee</label><select id="user_id" name="user_id" required><option value="">Select employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}">{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></div>
-            <div><label for="branch_id">Workplace</label><select id="branch_id" name="branch_id"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}">{{$branch->name}}</option>@endforeach</select><small>Only choose a workplace assigned to the employee.</small></div>
-            <div><label for="title">Shift title</label><input id="title" name="title" maxlength="120" value="Shift" required></div>
-            <div><label for="break_minutes">Unpaid break (minutes)</label><input id="break_minutes" name="break_minutes" type="number" min="0" max="600" value="0" required></div>
-            <div><label for="starts_at">Starts</label><input id="starts_at" name="starts_at" type="datetime-local" value="{{$start->format('Y-m-d')}}T09:00" required></div>
-            <div><label for="ends_at">Ends</label><input id="ends_at" name="ends_at" type="datetime-local" value="{{$start->format('Y-m-d')}}T17:30" required></div>
-            <div><label for="notes">Notes (optional)</label><input id="notes" name="notes" maxlength="2000"></div>
+    <div class="card-head"><div><h2>Add shifts to this rota</h2><p>Add several employee shifts in one go. Every shift is checked for leave, closures, availability and overlaps before anything is saved.</p></div></div>
+    <form method="post" action="{{url('/rota/shifts/batch')}}" data-rota-batch>@csrf
+        <div class="rota-batch-list" data-rota-batch-list>
+            <div class="rota-batch-row" data-rota-row>
+                <label>Employee<select name="shifts[0][user_id]" required><option value="">Select employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}">{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></label>
+                <label>Workplace<select name="shifts[0][branch_id]"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}">{{$branch->name}}</option>@endforeach</select></label>
+                <label>Shift title<input name="shifts[0][title]" maxlength="120" value="Shift" required></label>
+                <label>Starts<input name="shifts[0][starts_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T09:00" required></label>
+                <label>Ends<input name="shifts[0][ends_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T17:30" required></label>
+                <label>Break (minutes)<input name="shifts[0][break_minutes]" type="number" min="0" max="600" value="0" required></label>
+                <label>Note (optional)<input name="shifts[0][notes]" maxlength="2000"></label>
+                <button type="button" class="danger" data-remove-rota-row>Remove row</button>
+            </div>
         </div>
-        <div class="form-actions"><button>Save draft shift</button></div>
+        <template data-rota-row-template><div class="rota-batch-row" data-rota-row>
+            <label>Employee<select name="shifts[__INDEX__][user_id]" required><option value="">Select employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}">{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></label>
+            <label>Workplace<select name="shifts[__INDEX__][branch_id]"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}">{{$branch->name}}</option>@endforeach</select></label>
+            <label>Shift title<input name="shifts[__INDEX__][title]" maxlength="120" value="Shift" required></label>
+            <label>Starts<input name="shifts[__INDEX__][starts_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T09:00" required></label>
+            <label>Ends<input name="shifts[__INDEX__][ends_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T17:30" required></label>
+            <label>Break (minutes)<input name="shifts[__INDEX__][break_minutes]" type="number" min="0" max="600" value="0" required></label>
+            <label>Note (optional)<input name="shifts[__INDEX__][notes]" maxlength="2000"></label>
+            <button type="button" class="danger" data-remove-rota-row>Remove row</button>
+        </div></template>
+        <div class="form-actions"><button type="button" class="secondary" data-add-rota-row>Add another shift</button><button>Save all as drafts</button></div>
     </form>
 </section>
 

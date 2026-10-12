@@ -107,3 +107,25 @@ document.querySelectorAll('[data-leave-calendar]').forEach(calendar=>{
  if(start&&!end)end=start;
  render();
 });
+document.querySelectorAll('[data-rota-batch]').forEach(form=>{
+ const list=form.querySelector('[data-rota-batch-list]'),template=form.querySelector('[data-rota-row-template]'),add=form.querySelector('[data-add-rota-row]');
+ if(!list||!template||!add)return;
+ let nextIndex=list.querySelectorAll('[data-rota-row]').length;
+ const sync=()=>{
+  const rows=[...list.querySelectorAll('[data-rota-row]')];
+  rows.forEach(buttonRow=>{const remove=buttonRow.querySelector('[data-remove-rota-row]');if(remove)remove.disabled=rows.length<=1;});
+  add.disabled=rows.length>=100;
+ };
+ add.addEventListener('click',()=>{
+  if(list.querySelectorAll('[data-rota-row]').length>=100)return;
+  const row=template.content.firstElementChild.cloneNode(true);
+  row.querySelectorAll('[name]').forEach(control=>{control.name=control.name.replaceAll('__INDEX__',String(nextIndex));});
+  nextIndex++;list.append(row);sync();row.querySelector('select')?.focus();
+ });
+ list.addEventListener('click',event=>{
+  const remove=event.target.closest('[data-remove-rota-row]');
+  if(!remove||list.querySelectorAll('[data-rota-row]').length<=1)return;
+  remove.closest('[data-rota-row]')?.remove();sync();
+ });
+ sync();
+});

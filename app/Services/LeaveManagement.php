@@ -71,11 +71,12 @@ class LeaveManagement
     }
 
     /** @return array{year_start: string, year_end: string, entitlement: float, used: float, pending: float, remaining: float} */
-    public function balance(int $businessId, int $userId, ?CarbonImmutable $forDate = null): array
+    public function balance(int $businessId, int $userId, ?CarbonImmutable $forDate = null, ?int $exceptRequestId = null): array
     {
         $period = $this->yearFor($businessId, $forDate ?? CarbonImmutable::now('UTC'));
         $requests = DB::table('leave_requests')->where('business_id', $businessId)->where('user_id', $userId)
             ->where('leave_type', 'annual')->whereBetween('start_date', [$period['start']->toDateString(), $period['end']->toDateString()]);
+        if ($exceptRequestId) $requests->where('id', '!=', $exceptRequestId);
         $used = (float) (clone $requests)->where('status', 'approved')->sum('working_days');
         $pending = (float) (clone $requests)->where('status', 'pending')->sum('working_days');
         $entitlement = $this->entitlement($businessId, $userId);

@@ -108,6 +108,40 @@ class LeaveManagementTest extends TestCase
         $this->assertSame('1.00', number_format((float) $request->working_days, 2, '.', ''));
     }
 
+    public function test_admin_can_edit_and_cancel_approved_leave_with_balance_and_audit_updates(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('admin-edit');
+        DB::table('business_leave_policies')->where('business_id', $businessId)->update(['default_annual_entitlement' => 2]);
+        $this->actingAs($admin, 'web')->post('/leave/requests/book', [
+            'employee_id' => $employee->id, 'leave_type' => 'annual',
+            'start_date' => '2027-03-01', 'end_date' => '2027-03-02', 'confirm_booking' => '1',
+        ])->assertRedirect();
+        $leaveRequest = DB::table('leave_requests')->where('business_id', $businessId)->firstOrFail();
+        $this->actingAs($admin, 'web')->get('/leave?edit_leave='.$leaveRequest->id)->assertOk()
+            ->assertSee('Edit leave booking')->assertSee('/leave/requests/'.$leaveRequest->id.'/edit', false);
+
+        $this->actingAs($admin, 'web')->post('/leave/requests/'.$leaveRequest->id.'/edit', [
+            'employee_id' => $employee->id, 'leave_type' => 'annual',
+            'start_date' => '2027-03-08', 'end_date' => '2027-03-09', 'confirm_booking' => '1',
+        ])->assertRedirect()->assertSessionHas('status', 'Leave booking updated. The employee’s balance has been recalculated.');
+        $this->assertDatabaseHas('leave_requests', [
+            'id' => $leaveRequest->id, 'start_date' => '2027-03-08', 'end_date' => '2027-03-09',
+            'working_days' => 2, 'status' => 'approved',
+        ]);
+        $this->assertDatabaseHas('leave_request_events', ['leave_request_id' => $leaveRequest->id, 'action' => 'edited']);
+        $this->assertDatabaseHas('leave_admin_events', ['subject_id' => $leaveRequest->id, 'action' => 'employee_leave_updated']);
+
+        $this->actingAs($admin, 'web')->post('/leave/requests/'.$leaveRequest->id.'/cancel', [
+            'cancellation_note' => 'Employee no longer needs these dates.',
+        ])->assertRedirect()->assertSessionHas('status', 'Leave booking cancelled. The employee’s allowance has been released.');
+        $this->assertDatabaseHas('leave_requests', ['id' => $leaveRequest->id, 'status' => 'cancelled']);
+        $this->assertDatabaseHas('leave_request_events', [
+            'leave_request_id' => $leaveRequest->id, 'action' => 'cancelled', 'to_status' => 'cancelled',
+            'note' => 'Employee no longer needs these dates.',
+        ]);
+        $this->assertDatabaseHas('leave_admin_events', ['subject_id' => $leaveRequest->id, 'action' => 'employee_leave_cancelled']);
+    }
+
     public function test_admin_booking_requires_confirmation_and_respects_rota_conflicts(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('admin-booking-conflict');
@@ -160,5 +194,20 @@ class LeaveManagementTest extends TestCase
         DB::table('business_modules')->where('business_id', $businessId)->where('module_id', $moduleId)->delete();
 
         $this->actingAs($employee, 'sanctum')->getJson('/api/leave')->assertForbidden();
+    }
+
+    public function test_leave_module_includes_holiday_calendar_without_a_separate_add_on(): void
+    {
+        [$businessId, $admin] = $this->workspace('holiday-alias');
+        $holidayModuleId = DB::table('modules')->where('code', 'holiday_calendar')->value('id');
+        DB::table('business_modules')->where('business_id', $businessId)->where('module_id', $holidayModuleId)->delete();
+
+        $this->actingAs($admin, 'web')->get('/calendar')->assertOk()->assertSee('Holiday calendar');
+        $this->actingAs($admin, 'web')->post('/calendar/holidays', [
+            'name' => 'Company closure', 'holiday_date' => '2027-12-27', 'region' => 'local', 'is_closure' => '1',
+        ])->assertRedirect()->assertSessionHas('status', 'Holiday added to your business calendar.');
+        $this->assertDatabaseHas('business_holidays', [
+            'business_id' => $businessId, 'name' => 'Company closure', 'holiday_date' => '2027-12-27', 'is_closure' => true,
+        ]);
     }
 }

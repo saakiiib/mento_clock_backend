@@ -10,4 +10,5 @@ Artisan::command('hr:generate-reminders', function () {
 })->purpose('Generate tenant-scoped HR reminders and send configured email digests.');
 Schedule::command('hr:generate-reminders')->dailyAt('07:00')->timezone('Europe/London')->withoutOverlapping();
 Schedule::call(fn () => app(\App\Services\EmployeeLifecycle::class)->processDueOffboarding())
+    ->name('mentoclock.process-due-offboarding')
     ->everyFifteenMinutes()->timezone('UTC')->withoutOverlapping();

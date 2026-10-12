@@ -67,7 +67,13 @@ class RotaController
             ->whereDate('l.start_date', '<=', $end->toDateString())->whereDate('l.end_date', '>=', $start->toDateString())
             ->select('l.*', 'u.name as employee_name')->orderBy('l.start_date')->get();
 
-        return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'employees', 'branches', 'holidays', 'leave'));
+        $availability = DB::table('rota_availability as a')->join('users as u', function ($join) use ($businessId) {
+            $join->on('u.id', '=', 'a.user_id')->where('u.business_id', '=', $businessId);
+        })->where('a.business_id', $businessId)->where('a.starts_at', '<', $end->utc()->toDateTimeString())
+            ->where('a.ends_at', '>', $start->utc()->toDateTimeString())->select('a.*', 'u.name as employee_name')->orderBy('a.starts_at')->get();
+        $templates = DB::table('rota_templates')->where('business_id', $businessId)->where('active', true)->orderBy('name')->get();
+
+        return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'employees', 'branches', 'holidays', 'leave', 'availability', 'templates'));
     }
 
     public function store(Request $request)
@@ -102,6 +108,42 @@ class RotaController
         return back()->with('status', 'Shift saved as a draft. Review the week and publish it when ready.');
     }
 
+    public function updateDraft(Request $request, int $shiftId)
+    {
+        $businessId = $this->businessId($request);
+        $values = $request->validate([
+            'user_id' => ['required', 'integer', Rule::exists('users', 'id')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)],
+            'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')->where('business_id', $businessId)->where('active', true)],
+            'title' => 'required|string|max:120', 'starts_at' => 'required|date_format:Y-m-d\\TH:i',
+            'ends_at' => 'required|date_format:Y-m-d\\TH:i|after:starts_at',
+            'break_minutes' => 'required|integer|min:0|max:600', 'notes' => 'nullable|string|max:2000',
+        ]);
+        $start = $this->parseLocal($values['starts_at'], $businessId);
+        $end = $this->parseLocal($values['ends_at'], $businessId);
+        if ($end->getTimestamp() - $start->getTimestamp() > 18 * 3600) {
+            throw ValidationException::withMessages(['ends_at' => 'A shift cannot exceed 18 hours.']);
+        }
+        if (!empty($values['branch_id']) && !DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $values['user_id'])->where('branch_id', $values['branch_id'])->exists()) {
+            throw ValidationException::withMessages(['branch_id' => 'The employee is not assigned to this workplace.']);
+        }
+
+        DB::transaction(function () use ($request, $businessId, $shiftId, $values, $start, $end) {
+            $shift = DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->lockForUpdate()->first();
+            abort_unless($shift, 404);
+            if ($shift->status !== 'draft') throw ValidationException::withMessages(['shift' => 'Only draft shifts can be edited. Cancel a published shift and create a replacement to preserve its history.']);
+            $employee = DB::table('users')->where('business_id', $businessId)->where('id', $values['user_id'])->where('role', 'employee')->where('active', true)->lockForUpdate()->first();
+            abort_unless($employee, 404);
+            $this->planner->assertNoConflict($businessId, (int) $employee->id, $start, $end, $shiftId);
+            DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->update([
+                'user_id' => $employee->id, 'branch_id' => $values['branch_id'] ?? null, 'title' => $values['title'],
+                'starts_at' => $start->utc()->toDateTimeString(), 'ends_at' => $end->utc()->toDateTimeString(),
+                'break_minutes' => $values['break_minutes'], 'notes' => $values['notes'] ?? null, 'updated_at' => now('UTC'),
+            ]);
+            $this->audit($request, $businessId, $shiftId, 'draft_shift_updated', (array) $shift, $values);
+        });
+        return back()->with('status', 'Draft shift updated. Review the rota before publishing it.');
+    }
+
     public function publish(Request $request, int $shiftId)
     {
         $businessId = $this->businessId($request);
@@ -132,6 +174,96 @@ class RotaController
             $this->audit($request, $businessId, $shiftId, 'shift_cancelled', (array) $shift, ['status' => 'cancelled']);
         });
         return back()->with('status', 'Shift cancelled. The change is recorded in the rota history.');
+    }
+
+    public function saveAvailability(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $values = $request->validate([
+            'user_id' => ['required', 'integer', Rule::exists('users', 'id')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)],
+            'starts_at' => 'required|date_format:Y-m-d\\TH:i', 'ends_at' => 'required|date_format:Y-m-d\\TH:i|after:starts_at',
+            'availability' => ['required', Rule::in(['available', 'unavailable'])], 'notes' => 'nullable|string|max:500',
+        ]);
+        $start = $this->parseLocal($values['starts_at'], $businessId); $end = $this->parseLocal($values['ends_at'], $businessId);
+        if ($start->diffInDays($end) > 31) throw ValidationException::withMessages(['ends_at' => 'Availability periods can be up to 31 days.']);
+        $availabilityId = DB::table('rota_availability')->insertGetId([
+            'business_id' => $businessId, 'user_id' => $values['user_id'],
+            'starts_at' => $start->utc()->toDateTimeString(), 'ends_at' => $end->utc()->toDateTimeString(),
+            'availability' => $values['availability'], 'notes' => $values['notes'] ?? null,
+            'created_by' => $request->user()->id, 'created_at' => now('UTC'), 'updated_at' => now('UTC'),
+        ]);
+        DB::table('rota_events')->insert(['business_id' => $businessId, 'rota_shift_id' => null, 'actor_id' => $request->user()->id,
+            'action' => 'availability_added', 'before_data' => null, 'after_data' => json_encode(['availability_id' => $availabilityId, 'user_id' => $values['user_id'], 'starts_at' => $start->utc()->toDateTimeString(), 'ends_at' => $end->utc()->toDateTimeString(), 'availability' => $values['availability']], JSON_THROW_ON_ERROR), 'created_at' => now('UTC')]);
+        return back()->with('status', 'Employee availability updated. Unavailable times now block new rota shifts.');
+    }
+
+    public function deleteAvailability(Request $request, int $availabilityId)
+    {
+        $businessId = $this->businessId($request);
+        $availability = DB::table('rota_availability')->where('business_id', $businessId)->where('id', $availabilityId)->first();
+        abort_unless($availability, 404);
+        DB::table('rota_availability')->where('id', $availabilityId)->delete();
+        DB::table('rota_events')->insert(['business_id' => $businessId, 'rota_shift_id' => null, 'actor_id' => $request->user()->id,
+            'action' => 'availability_removed', 'before_data' => json_encode((array) $availability, JSON_THROW_ON_ERROR), 'after_data' => null, 'created_at' => now('UTC')]);
+        return back()->with('status', 'Availability record removed.');
+    }
+
+    public function saveTemplate(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $values = $request->validate(['name' => 'required|string|max:120', 'week' => 'required|date_format:Y-m-d']);
+        $timezone = $this->timezone($businessId); $start = CarbonImmutable::parse($values['week'], $timezone)->startOfWeek(); $end = $start->addDays(7);
+        $source = DB::table('rota_shifts')->where('business_id', $businessId)->whereIn('status', ['draft', 'published'])
+            ->where('starts_at', '<', $end->utc()->toDateTimeString())->where('ends_at', '>', $start->utc()->toDateTimeString())->get();
+        if ($source->isEmpty()) throw ValidationException::withMessages(['week' => 'There are no draft or published shifts in this week to save as a template.']);
+        $shifts = $source->map(function ($shift) use ($timezone, $start) {
+            $localStart = CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($timezone);
+            $localEnd = CarbonImmutable::parse($shift->ends_at, 'UTC')->setTimezone($timezone);
+            return ['user_id' => (int) $shift->user_id, 'branch_id' => $shift->branch_id ? (int) $shift->branch_id : null,
+                'title' => $shift->title, 'weekday' => $localStart->dayOfWeekIso,
+                'start_time' => $localStart->format('H:i'), 'end_day_offset' => $localEnd->toDateString() === $localStart->toDateString() ? 0 : 1,
+                'end_time' => $localEnd->format('H:i'), 'break_minutes' => (int) $shift->break_minutes, 'notes' => $shift->notes];
+        })->values()->all();
+        $templateId = DB::table('rota_templates')->insertGetId(['business_id' => $businessId, 'name' => $values['name'], 'shifts' => json_encode($shifts, JSON_THROW_ON_ERROR), 'active' => true,
+            'created_by' => $request->user()->id, 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+        DB::table('rota_events')->insert(['business_id' => $businessId, 'rota_shift_id' => null, 'actor_id' => $request->user()->id,
+            'action' => 'template_saved', 'before_data' => null, 'after_data' => json_encode(['template_id' => $templateId, 'name' => $values['name'], 'shift_count' => count($shifts)], JSON_THROW_ON_ERROR), 'created_at' => now('UTC')]);
+        return back()->with('status', 'Reusable rota template saved from the selected week.');
+    }
+
+    public function applyTemplate(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $values = $request->validate([
+            'template_id' => ['required', 'integer', Rule::exists('rota_templates', 'id')->where('business_id', $businessId)->where('active', true)],
+            'week' => 'required|date_format:Y-m-d',
+        ]);
+        $timezone = $this->timezone($businessId);
+        DB::transaction(function () use ($request, $businessId, $values, $timezone) {
+            $template = DB::table('rota_templates')->where('business_id', $businessId)->where('id', $values['template_id'])->lockForUpdate()->firstOrFail();
+            $weekStart = CarbonImmutable::parse($values['week'], $timezone)->startOfWeek();
+            $shifts = is_array($template->shifts) ? $template->shifts : json_decode($template->shifts, true);
+            foreach ($shifts ?: [] as $item) {
+                $employee = DB::table('users')->where('business_id', $businessId)->where('id', $item['user_id'])->where('role', 'employee')->where('active', true)->lockForUpdate()->first();
+                abort_unless($employee, 422, 'A template employee is no longer active. Update the template before applying it.');
+                $start = $weekStart->addDays(((int) $item['weekday']) - 1)->setTimeFromTimeString($item['start_time']);
+                $end = $start->addDays((int) ($item['end_day_offset'] ?? 0))->setTimeFromTimeString($item['end_time']);
+                if ($end <= $start) throw ValidationException::withMessages(['week' => 'A template contains an invalid shift duration.']);
+                if (!empty($item['branch_id'])) {
+                    $assigned = DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $employee->id)->where('branch_id', $item['branch_id'])->exists();
+                    if (!$assigned) throw ValidationException::withMessages(['week' => 'A template employee is no longer assigned to its saved workplace.']);
+                }
+                $this->planner->assertNoConflict($businessId, (int) $employee->id, $start, $end);
+                $id = DB::table('rota_shifts')->insertGetId([
+                    'business_id' => $businessId, 'user_id' => $employee->id, 'branch_id' => $item['branch_id'] ?? null,
+                    'title' => $item['title'], 'starts_at' => $start->utc()->toDateTimeString(), 'ends_at' => $end->utc()->toDateTimeString(),
+                    'break_minutes' => $item['break_minutes'], 'notes' => $item['notes'] ?? null, 'status' => 'draft',
+                    'created_by' => $request->user()->id, 'created_at' => now('UTC'), 'updated_at' => now('UTC'),
+                ]);
+                $this->audit($request, $businessId, $id, 'shift_created_from_template', null, ['template_id' => $template->id, ...$item]);
+            }
+        });
+        return back()->with('status', 'Template shifts added as drafts. Review and publish the rota when ready.');
     }
 
     public function mine(Request $request)

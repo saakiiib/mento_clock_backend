@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\BusinessCapacity;
+use App\Services\EmployeeLifecycle;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -9,10 +10,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 class AdminController {
- public function __construct(private BusinessCapacity $capacity) {}
+ public function __construct(private BusinessCapacity $capacity, private EmployeeLifecycle $lifecycle) {}
  public function login(Request $r){
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
-  if(Auth::guard('web')->attempt([...$v,'active'=>true,'role'=>'admin'])){
+  if(Auth::guard('web')->attempt([...$v,'active'=>true])){
+   if(!app(\App\Services\WorkspacePermissions::class)->has(Auth::guard('web')->user(),'workspace.access')){Auth::guard('web')->logout();return back()->withErrors(['email'=>'This account has no client-portal access.']);}
    if(!DB::table('businesses')->where('id',Auth::guard('web')->user()->business_id)->where('active',true)->exists()){Auth::guard('web')->logout();return back()->withErrors(['email'=>'This workspace is paused. Please contact Mento Software.']);}
    Auth::guard('platform')->logout();$r->session()->forget('platform_version');$r->session()->regenerate();return redirect('/');
   }
@@ -22,14 +24,14 @@ class AdminController {
   return back()->withErrors(['email'=>'The email or password is incorrect, or this account is inactive.']);
  }
  private function business(Request $r): int {
-  $u=$r->user();abort_unless($u && $u->role==='admin' && $u->active,403);
+  $u=$r->user();abort_unless($u && app(\App\Services\WorkspacePermissions::class)->has($u,'workspace.access'),403);
   abort_unless(DB::table('businesses')->where('id',$u->business_id)->where('active',true)->exists(),403);return $u->business_id;
  }
  public function index(Request $r){
   $id=$this->business($r);
   $business=DB::table('businesses')->find($id);
   $branches=DB::table('branches')->where('business_id',$id)->get()->map(function($branch)use($id){$branch->employee_count=$this->capacity->activeEmployeeCount($id,(int)$branch->id);$branch->employee_limit=$this->capacity->employeeLimit($id,(int)$branch->id);return $branch;});
-  $employees=User::where('business_id',$id)->get();
+  $employees=User::where('business_id',$id)->get(['id','name','email','role','active','job_title','employee_code']);
   $records=DB::table('attendance_records as a')->join('users as u','u.id','=','a.user_id')->join('branches as b','b.id','=','a.branch_id')->where('a.business_id',$id)->orderByDesc('a.clock_in')->select('a.*','u.name as employee','b.name as branch')->limit(200)->get();
   $section=in_array($r->path(),['people','workplaces','attendance'])?$r->path():'overview';
   $assigned=DB::table('employee_branches')->where('business_id',$id)->get()->groupBy('user_id')->map(fn($rows)=>$rows->pluck('branch_id')->all());
@@ -45,6 +47,8 @@ class AdminController {
   ];
   $organisationProfileCompletion=(int)round(count(array_filter($organisationFields,fn($value)=>is_string($value)?trim($value)!=='':!empty($value)))/count($organisationFields)*100);
   $moduleAccess=app(\App\Services\ModuleAccess::class);
+  $permissions=app(\App\Services\WorkspacePermissions::class);$canManagePeople=$permissions->has($r->user(),'people.manage');$canViewPrivatePeople=$permissions->has($r->user(),'people.sensitive.view');$canCorrectAttendance=$permissions->has($r->user(),'attendance.correct');
+  $canViewAttendance=$permissions->has($r->user(),'attendance.view');$canViewReports=$permissions->has($r->user(),'reports.view');$canViewLeave=$permissions->has($r->user(),'leave.view');$canViewRota=$permissions->has($r->user(),'rota.view');$canViewCompliance=$permissions->has($r->user(),'compliance.view');$canViewNotices=$permissions->has($r->user(),'notices.view');$canViewOrganisation=$permissions->has($r->user(),'organisation.view');
   $pendingLeaveCount=0;$upcomingShiftCount=0;$upcomingHolidayCount=0;$complianceDueCount=0;$unacknowledgedNoticeCount=0;
   $localNow=Carbon::now($business->timezone);
   if($moduleAccess->enabled($id,'leave_management'))$pendingLeaveCount=DB::table('leave_requests')->where('business_id',$id)->where('status','pending')->count();
@@ -56,6 +60,8 @@ class AdminController {
     +DB::table('employee_training_records')->where('business_id',$id)->whereIn('status',['valid','expired'])->whereNotNull('expires_on')->where('expires_on','<=',$dueDate)->count();
   }
   if($moduleAccess->enabled($id,'company_notices'))$unacknowledgedNoticeCount=DB::table('company_notice_receipts as r')->join('company_notices as n','n.id','=','r.notice_id')->where('r.business_id',$id)->whereNull('r.acknowledged_at')->where('n.status','published')->where('n.acknowledgement_required',true)->where(function($q){$q->whereNull('n.publish_at')->orWhere('n.publish_at','<=',now('UTC'));})->where(function($q){$q->whereNull('n.expires_at')->orWhere('n.expires_at','>',now('UTC'));})->count();
+  $openLifecycleTaskCount=$moduleAccess->enabled($id,'employee_lifecycle')?DB::table('employee_lifecycle_tasks')->where('business_id',$id)->whereIn('status',['pending','in_progress','blocked'])->count():0;
+  $unreadHrReminderCount=$moduleAccess->enabled($id,'hr_reminders')?DB::table('hr_reminders')->where('business_id',$id)->whereNull('read_at')->count():0;
   $definitions=[
    'employee_management'=>['title'=>'People','description'=>'Employee profiles, workplace access and team details.','href'=>'/people','icon'=>'people','count'=>$employees->where('role','employee')->where('active',true)->count(),'unit'=>'active employees'],
    'attendance_tracking'=>['title'=>'Attendance','description'=>'See clock-ins and review attendance activity.','href'=>'/attendance','icon'=>'clock','count'=>$workingCount,'unit'=>'employees clocked in now'],
@@ -65,15 +71,20 @@ class AdminController {
    'rota_shifts'=>['title'=>'Rota & shifts','description'=>'Plan the week and check published employee shifts.','href'=>'/rota','icon'=>'clock','count'=>$upcomingShiftCount,'unit'=>'published shifts in the next 7 days'],
    'compliance_tracking'=>['title'=>'Compliance & training','description'=>'Review private employee records, renewals and training.','href'=>'/compliance','icon'=>'shield','count'=>$complianceDueCount,'unit'=>'records due or expired'],
    'company_notices'=>['title'=>'Company notices','description'=>'Share team updates and follow required acknowledgements.','href'=>'/notices','icon'=>'report','count'=>$unacknowledgedNoticeCount,'unit'=>'acknowledgements outstanding'],
+   'employee_lifecycle'=>['title'=>'Onboarding & offboarding','description'=>'Coordinate new starters and leavers with checklists.','href'=>'/lifecycle','icon'=>'people','count'=>$openLifecycleTaskCount,'unit'=>'open checklist tasks'],
+   'hr_reminders'=>['title'=>'HR reminders','description'=>'Review expiring records and overdue actions.','href'=>'/reminders','icon'=>'calendar','count'=>$unreadHrReminderCount,'unit'=>'items to review'],
+   'hr_reports'=>['title'=>'HR reports','description'=>'View workforce, leave, rota and compliance summaries.','href'=>'/reports/hr','icon'=>'report','count'=>'—','unit'=>'workforce insights'],
+   'role_permissions'=>['title'=>'Roles & permissions','description'=>'Set staff access to client portal features.','href'=>'/roles','icon'=>'shield','count'=>'—','unit'=>'access settings'],
   ];
   $overviewModules=[];$overviewStats=[];
+  $modulePermissions=['employee_management'=>'people.view','attendance_tracking'=>'attendance.view','reports_analytics'=>'reports.view','leave_management'=>'leave.view','holiday_calendar'=>'leave.view','rota_shifts'=>'rota.view','compliance_tracking'=>'compliance.view','company_notices'=>'notices.view','employee_lifecycle'=>'lifecycle.view','hr_reminders'=>'reminders.view','hr_reports'=>'reports.view','role_permissions'=>'roles.manage'];
   foreach($definitions as $code=>$module){
-   if(!$moduleAccess->enabled($id,$code))continue;
+   if(!$moduleAccess->enabled($id,$code)||!app(\App\Services\WorkspacePermissions::class)->has($r->user(),$modulePermissions[$code]??'workspace.access'))continue;
    $overviewModules[]=['code'=>$code,...$module];
-   if(in_array($code,['employee_management','attendance_tracking','leave_management','rota_shifts','compliance_tracking','company_notices'],true))$overviewStats[]=['title'=>$module['title'],'count'=>$module['count'],'unit'=>$module['unit'],'icon'=>$module['icon'],'href'=>$module['href'],'attention'=>in_array($code,['leave_management','compliance_tracking','company_notices'],true)&&$module['count']>0];
+   if(in_array($code,['employee_management','attendance_tracking','leave_management','rota_shifts','compliance_tracking','company_notices','employee_lifecycle','hr_reminders'],true))$overviewStats[]=['title'=>$module['title'],'count'=>$module['count'],'unit'=>$module['unit'],'icon'=>$module['icon'],'href'=>$module['href'],'attention'=>in_array($code,['leave_management','compliance_tracking','company_notices','hr_reminders'],true)&&$module['count']>0];
   }
-  $overviewModules[]=['code'=>'organisation_profile','title'=>'Organisation profile','description'=>'Keep your legal details, contacts, working hours and business documents up to date.','href'=>'/company','icon'=>'building','count'=>$organisationProfileCompletion,'unit'=>'% complete'];
-  return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile','overviewModules','overviewStats','pendingLeaveCount','upcomingShiftCount','upcomingHolidayCount','complianceDueCount','unacknowledgedNoticeCount','organisationProfileCompletion'));
+  if($permissions->has($r->user(),'organisation.view'))$overviewModules[]=['code'=>'organisation_profile','title'=>'Organisation profile','description'=>'Keep your legal details, contacts, working hours and business documents up to date.','href'=>'/company','icon'=>'building','count'=>$organisationProfileCompletion,'unit'=>'% complete'];
+  return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile','overviewModules','overviewStats','pendingLeaveCount','upcomingShiftCount','upcomingHolidayCount','complianceDueCount','unacknowledgedNoticeCount','organisationProfileCompletion','canManagePeople','canViewPrivatePeople','canCorrectAttendance','canViewAttendance','canViewReports','canViewLeave','canViewRota','canViewCompliance','canViewNotices','canViewOrganisation'));
  }
  private function employeeProfileRules(int $businessId): array {
   $authority=Rule::exists('users','id')->where('business_id',$businessId)->where('active',true);
@@ -166,16 +177,17 @@ class AdminController {
   $rules['password']='required|string|min:12|max:72';
   $rules['branches']='required|array|min:1';$rules['branches.*']=['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)];
   $v=$this->validateEmployeeForm($r,$rules);if($v instanceof \Illuminate\Http\RedirectResponse)return $v;$payload=$this->employeeProfilePayload($v);
-  DB::transaction(function()use($id,$v,$payload){
+  DB::transaction(function()use($id,$v,$payload,$r){
    DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$v['branches']);
    $u=User::create([...$payload,'password'=>$v['password'],'business_id'=>$id,'role'=>'employee','active'=>true]);
    foreach(array_unique($v['branches']) as $b)DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);
+   if(app(\App\Services\ModuleAccess::class)->enabled($id,'employee_lifecycle'))$this->lifecycle->open($id,(int)$u->id,'onboarding',$v['employment_start_date']??null,(int)$r->user()->id);
   });
   return redirect('/people')->with('status','Employee created. Share their login credentials securely.');
  }
  public function editEmployee(Request $r,$id){
   $business=$this->business($r);$employee=User::where('business_id',$business)->where('role','employee')->findOrFail($id);
-  return view('employees.edit',['employee'=>$employee,...$this->employeeFormData($business),'assigned'=>DB::table('employee_branches')->where('business_id',$business)->where('user_id',$employee->id)->pluck('branch_id')->all()]);
+  return view('employees.edit',['employee'=>$employee,...$this->employeeFormData($business),'assigned'=>DB::table('employee_branches')->where('business_id',$business)->where('user_id',$employee->id)->pluck('branch_id')->all(),'canManageEmployee'=>app(\App\Services\WorkspacePermissions::class)->has($r->user(),'people.manage')]);
  }
  public function updateEmployee(Request $r,$id){
   $business=$this->business($r);$employee=User::where('business_id',$business)->where('role','employee')->findOrFail($id);

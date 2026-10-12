@@ -1,0 +1,6 @@
+@extends('layout')
+@section('title','HR reminders')
+@section('content')
+<div class="page-heading"><div><span class="eyebrow">AUTOMATED FOLLOW-UP</span><h1>HR reminders</h1><p>Scheduled alerts for expiring records, training, contracts, overdue workflow tasks and long-pending leave requests.</p></div></div>
+<section class="card"><div class="card-head"><div><h2>Reminder inbox</h2><p>Daily digest emails go to client-portal users with reminder access when mail delivery is configured.</p></div></div><div class="scroll"><table><thead><tr><th>Date</th><th>Reminder</th><th>Details</th><th>Status</th><th></th></tr></thead><tbody>@forelse($reminders as $reminder)<tr><td>{{Carbon\Carbon::parse($reminder->remind_on)->format('d M Y')}}</td><td><strong>{{$reminder->title}}</strong></td><td>{{$reminder->body}}</td><td><span class="badge {{$reminder->read_at?'success':'warning'}}">{{$reminder->read_at?'Reviewed':'Needs review'}}</span></td><td>@if(!$reminder->read_at)<form method="post" action="{{url('/reminders/'.$reminder->id.'/read')}}">@csrf<button class="secondary">Mark reviewed</button></form>@endif</td></tr>@empty<tr><td colspan="5"><p class="caption">No HR reminders are due.</p></td></tr>@endforelse</tbody></table></div>{{$reminders->links()}}</section>
+@endsection

@@ -1,7 +1,9 @@
 @php($employee = $employee ?? null)
 @php($assigned = $assigned ?? [])
+@php($canManageEmployee = $canManageEmployee ?? true)
 @if($errors->any())<div class="note" role="alert"><strong>Please check the form.</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
 <form method="post" action="{{$action}}" class="employee-profile-form">
+@if(!$canManageEmployee)<fieldset disabled><div class="note">You have read-only access to this employee’s full profile.</div>@endif
 @csrf
 <section class="card"><div class="card-head"><div><h2>Personal details</h2><p>Basic identity and contact information.</p></div></div>
 <div class="form-two">
@@ -47,4 +49,5 @@
 <section class="card"><div class="card-head"><div><h2>Account access</h2><p>This creates the employee’s existing MentoClock sign-in. Role permissions will be expanded as the portal develops.</p></div></div>
 @if($creating)<label for="password">Initial password <span aria-hidden="true">*</span></label><input id="password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required><p class="caption">Use at least 12 characters and share the password securely.</p>@else<label for="password">Set a new password <span class="caption">Leave blank to keep the current password.</span></label><input id="password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password">@endif
 <div class="form-actions"><button type="submit">{{$creating?'Create employee':'Save employee profile'}}</button><a class="button secondary" href="{{url('/people')}}">Cancel</a></div></section>
+@if(!$canManageEmployee)</fieldset>@endif
 </form>

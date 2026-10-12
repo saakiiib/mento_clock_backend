@@ -67,5 +67,17 @@
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:700px){.operating-day{grid-template-columns:1fr auto}.time-pair{grid-column:1/-1}.document-upload-form{grid-template-columns:1fr}.document-upload-form button{justify-self:start}}
 
+/* Workforce operations, rota tools and permission matrix */
+.lifecycle-case,.role-card{border:1px solid var(--line);border-radius:9px;padding:15px 17px;margin:12px 0;background:#fff}
+.lifecycle-case>summary,.role-card>summary{display:flex;align-items:center;gap:12px;justify-content:space-between;cursor:pointer;list-style:none}
+.lifecycle-case>summary::-webkit-details-marker,.role-card>summary::-webkit-details-marker{display:none}
+.lifecycle-case[open]>summary,.role-card[open]>summary{padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.inline-form{display:flex;gap:7px;align-items:center;min-width:360px}.inline-form input{min-width:100px}.permission-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:16px 0 20px}
+.permission-grid label{display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid var(--line);border-radius:7px;background:#fafbfc;font-size:10px}.permission-grid input{margin:1px 0 0;flex:0 0 auto}
+.role-card form{padding-top:5px}.role-card .badge{margin-left:7px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:13px;margin:15px 0 23px}
+.stat-card{border:1px solid var(--line);border-radius:11px;background:#fff;padding:16px;display:grid;gap:8px}.stat-card span{font-size:10px;color:var(--muted)}.stat-card strong{font-size:24px;font-weight:500;letter-spacing:-.5px}
+@media(max-width:600px){.permission-grid{grid-template-columns:1fr}.lifecycle-case>summary,.role-card>summary{align-items:flex-start;flex-wrap:wrap}.inline-form{min-width:0;flex-wrap:wrap}}
+
 /* Compliance, training and company notice registers */
 .badge.warning{background:#fff4e5;color:#9a5b17}.badge.success{background:#edf7f0;color:#35734b}.badge.neutral{background:#f1f2f4;color:#606873}.table-sub{display:block;margin-top:3px;max-width:420px;white-space:normal}.check-row{padding-top:14px}.check-row label{display:flex;align-items:center;gap:9px;margin:8px 0}.check-row input{flex:0 0 auto}.scroll table td{vertical-align:top}.actions details{position:relative}.actions details summary{cursor:pointer;color:#a65832;font-size:11px}.actions details form{position:absolute;z-index:3;right:0;top:24px;width:min(290px,80vw);padding:14px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px #25272b1a}.actions details input{margin-bottom:8px}.empty-state p:last-child{margin-bottom:0}

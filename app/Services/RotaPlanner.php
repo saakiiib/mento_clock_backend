@@ -36,6 +36,21 @@ class RotaPlanner
                 : 'This employee has a pending leave request during these dates. Resolve the request before scheduling a shift.';
         }
 
+        $unavailable = DB::table('rota_availability')->where('business_id', $businessId)->where('user_id', $employeeId)
+            ->where('availability', 'unavailable')->where('starts_at', '<', $end->utc()->toDateTimeString())
+            ->where('ends_at', '>', $start->utc()->toDateTimeString())->exists();
+        if ($unavailable) return 'This employee is marked unavailable during these shift hours.';
+
+        $availableOverlap = DB::table('rota_availability')->where('business_id', $businessId)->where('user_id', $employeeId)
+            ->where('availability', 'available')->where('starts_at', '<', $end->utc()->toDateTimeString())
+            ->where('ends_at', '>', $start->utc()->toDateTimeString())->exists();
+        if ($availableOverlap) {
+            $fullyAvailable = DB::table('rota_availability')->where('business_id', $businessId)->where('user_id', $employeeId)
+                ->where('availability', 'available')->where('starts_at', '<=', $start->utc()->toDateTimeString())
+                ->where('ends_at', '>=', $end->utc()->toDateTimeString())->exists();
+            if (!$fullyAvailable) return 'This shift falls outside the employee’s recorded available hours.';
+        }
+
         $policy = DB::table('business_leave_policies')->where('business_id', $businessId)->first();
         $region = $policy?->holiday_region ?? 'england_wales';
         $closure = DB::table('business_holidays')->where('business_id', $businessId)->where('is_closure', true)

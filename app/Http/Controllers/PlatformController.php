@@ -84,6 +84,7 @@ class PlatformController
             $id = DB::table('businesses')->insertGetId(['name' => $values['name'], 'timezone' => $values['timezone'], 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
             DB::table('client_profiles')->insert(['business_id' => $id, ...Arr::only($values, self::PROFILE), 'created_at' => now(), 'updated_at' => now()]);
             $admin = User::create(['business_id' => $id, 'name' => $values['admin_name'], 'email' => $values['admin_email'], 'password' => $values['password'], 'role' => 'admin', 'active' => true]);
+            \App\Services\WorkspacePermissions::seedDefaultRoles($id);
             $this->syncModules($id, $values['module_codes']);
             $this->audit($id, 'Client created', ['administrator_id' => $admin->id]);
             $this->audit($id, 'Client modules assigned', ['modules' => $this->activeModuleCodes($id)]);

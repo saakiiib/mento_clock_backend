@@ -82,6 +82,7 @@ class RotaController
         $businessId = $this->businessId($request);
         $timezone = $this->timezone($businessId);
         $period = $request->query('period');
+        $showBreaks = $request->boolean('show_breaks');
         abort_unless(in_array($period, ['week', 'month'], true), 422, 'Choose a week or month to export.');
 
         if ($period === 'week') {
@@ -98,6 +99,25 @@ class RotaController
             $suffix = $start->format('Y-m');
         }
 
+        $business = DB::table('businesses as b')->leftJoin('client_profiles as p', 'p.business_id', '=', 'b.id')
+            ->where('b.id', $businessId)->select('b.name', 'p.address')->first();
+        $businessName = $business->name ?? 'Business';
+        $businessAddress = trim((string) ($business->address ?? ''));
+
+        // Week exports use one seven-day grid. Month exports use a page per
+        // calendar week so the day columns remain readable when printed.
+        $weeks = [];
+        $weekStart = $period === 'week' ? $start : $start->startOfWeek();
+        while ($weekStart < $end) {
+            $days = [];
+            for ($offset = 0; $offset < 7; $offset++) {
+                $day = $weekStart->addDays($offset);
+                $days[] = ($day >= $start && $day < $end) ? $day : null;
+            }
+            $weeks[] = $days;
+            $weekStart = $weekStart->addWeek();
+        }
+
         $shifts = DB::table('rota_shifts as s')->join('users as u', function ($join) use ($businessId) {
             $join->on('u.id', '=', 's.user_id')->where('u.business_id', '=', $businessId);
         })->leftJoin('branches as b', function ($join) use ($businessId) {
@@ -108,7 +128,16 @@ class RotaController
             ->select('s.*', 'u.name as employee_name', 'u.employee_code', 'b.name as branch_name')
             ->orderBy('s.starts_at')->get();
 
-        $pdf = Pdf::loadView('rota.export', compact('shifts', 'start', 'end', 'periodLabel', 'timezone'))
+        $employees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)
+            ->orderBy('name')->get(['id', 'name', 'employee_code']);
+        $shiftGrid = [];
+        foreach ($shifts as $shift) {
+            $shift->local_start = CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($timezone);
+            $shift->local_end = CarbonImmutable::parse($shift->ends_at, 'UTC')->setTimezone($timezone);
+            $shiftGrid[$shift->user_id][$shift->local_start->toDateString()][] = $shift;
+        }
+
+        $pdf = Pdf::loadView('rota.export', compact('period', 'employees', 'shiftGrid', 'weeks', 'start', 'end', 'periodLabel', 'timezone', 'businessName', 'businessAddress', 'showBreaks'))
             ->setPaper('a4', 'landscape');
 
         return $pdf->download('mentoclock-rota-'.$period.'-'.$suffix.'.pdf');

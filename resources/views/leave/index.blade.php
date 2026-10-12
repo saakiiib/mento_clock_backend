@@ -11,6 +11,7 @@
     <article class="card stat"><div class="stat-head">CALENDAR ENTRIES</div><div class="number">{{$holidays->count()}}</div><small>Next 12 months</small></article>
 </div>
 
+@if(app(\App\Services\WorkspacePermissions::class)->has(auth()->user(),'leave.manage'))
 <section class="card">
     <div class="card-head"><div><h2>Leave policy</h2><p>Set the leave year, default annual allowance and public-holiday region for this workspace.</p></div></div>
     <form method="post" action="{{url('/leave/policy')}}">@csrf
@@ -24,6 +25,25 @@
     </form>
     <div class="note">Balances use approved annual-leave requests and the configured working days and business holidays. Carry-over, accrual, part-year proration and statutory calculations are not included in this release. Request day counts are recorded when submitted; review them if a work pattern or calendar entry changes afterwards.</div>
 </section>
+@endif
+
+@if(app(\App\Services\WorkspacePermissions::class)->has(auth()->user(),'leave.manage'))
+<section class="card">
+    <div class="card-head"><div><h2>Book leave for an employee</h2><p>Use this when a manager is entering a leave booking on the employee’s behalf.</p></div></div>
+    <div class="note" style="margin:0 0 18px">Booking creates an approved leave record immediately. Annual leave is checked against the employee’s remaining configured allowance. Existing leave and rota conflicts are checked before saving; applicable public holidays are excluded from counted working days.</div>
+    <form method="post" action="{{url('/leave/requests/book')}}">@csrf
+        <div class="form-two">
+            <div><label for="book_leave_employee">Employee</label><select id="book_leave_employee" name="employee_id" required><option value="">Choose an employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}" @selected((string)old('employee_id') === (string)$employee->id)>{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></div>
+            <div><label for="book_leave_type">Leave type</label><select id="book_leave_type" name="leave_type" required>@foreach(['annual'=>'Annual leave','sick'=>'Sick leave','unpaid'=>'Unpaid leave','compassionate'=>'Compassionate leave','other'=>'Other'] as $value=>$label)<option value="{{$value}}" @selected(old('leave_type','annual') === $value)>{{$label}}</option>@endforeach</select></div>
+            <div><label for="book_leave_start">Start date</label><input id="book_leave_start" type="date" name="start_date" value="{{old('start_date')}}" required></div>
+            <div><label for="book_leave_end">End date</label><input id="book_leave_end" type="date" name="end_date" value="{{old('end_date')}}" required></div>
+            <div style="grid-column:1/-1"><label for="book_leave_reason">Reason or note (optional)</label><textarea id="book_leave_reason" name="reason" rows="2" maxlength="2000">{{old('reason')}}</textarea></div>
+        </div>
+        <div class="check-row"><label><input type="checkbox" name="confirm_booking" value="1" required @checked(old('confirm_booking'))> I confirm this booking was agreed with the employee and should be approved now.</label></div>
+        <div class="form-actions"><button>Book and approve leave</button></div>
+    </form>
+</section>
+@endif
 
 <section class="card">
     <div class="card-head"><div><h2>Employee allowances and working days</h2><p>Leave a personal allowance blank to use the workspace default. Select the days each employee normally works.</p></div></div>
@@ -65,7 +85,7 @@
 </section>
 @endif
 <section class="card">
-    <div class="card-head"><div><h2>Workspace change history</h2><p>Policy, employee leave setup and holiday calendar changes.</p></div></div>
+    <div class="card-head"><div><h2>Workspace change history</h2><p>Policy, employee leave setup, holiday calendar changes and leave bookings.</p></div></div>
     @forelse($adminEvents as $event)<div class="activity-item"><strong>{{str_replace('_',' ',ucfirst($event->action))}}</strong><span>{{$event->subject_type}}{{ $event->subject_id ? ' #'.$event->subject_id : '' }} · {{$event->actor_name ?: 'Former administrator'}} · {{Carbon\Carbon::parse($event->created_at)->format('d M Y, H:i')}}</span></div>@empty<p class="caption">Calendar and policy changes will be recorded here.</p>@endforelse
 </section>
 @endsection

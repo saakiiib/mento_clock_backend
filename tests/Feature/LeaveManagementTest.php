@@ -67,6 +67,52 @@ class LeaveManagementTest extends TestCase
             ->assertJsonPath('balance.used', 2)->assertJsonPath('balance.remaining', 6);
     }
 
+    public function test_admin_can_book_approved_leave_for_an_employee_and_the_booking_is_audited(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('admin-booking');
+
+        $this->actingAs($admin, 'web')->post('/leave/requests/book', [
+            'employee_id' => $employee->id, 'leave_type' => 'annual',
+            'start_date' => '2027-03-01', 'end_date' => '2027-03-02',
+            'reason' => 'Agreed with employee', 'confirm_booking' => '1',
+        ])->assertRedirect()->assertSessionHas('status', 'Leave booked and approved for '.$employee->name.'.');
+
+        $leaveRequest = DB::table('leave_requests')->where('business_id', $businessId)->firstOrFail();
+        $this->assertSame('approved', $leaveRequest->status);
+        $this->assertSame((int) $admin->id, (int) $leaveRequest->reviewed_by);
+        $this->assertSame('2.00', number_format((float) $leaveRequest->working_days, 2, '.', ''));
+        $this->assertDatabaseHas('leave_request_events', [
+            'business_id' => $businessId, 'leave_request_id' => $leaveRequest->id,
+            'actor_id' => $admin->id, 'action' => 'admin_booked', 'from_status' => null, 'to_status' => 'approved',
+        ]);
+        $this->assertDatabaseHas('leave_admin_events', [
+            'business_id' => $businessId, 'actor_id' => $admin->id,
+            'subject_type' => 'leave_request', 'subject_id' => $leaveRequest->id, 'action' => 'employee_leave_booked',
+        ]);
+        $this->actingAs($employee, 'sanctum')->getJson('/api/leave')->assertOk()
+            ->assertJsonPath('balance.used', 2)->assertJsonPath('balance.remaining', 6)
+            ->assertJsonPath('requests.0.status', 'approved');
+    }
+
+    public function test_admin_booking_requires_confirmation_and_respects_rota_conflicts(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('admin-booking-conflict');
+        DB::table('rota_shifts')->insert([
+            'business_id' => $businessId, 'user_id' => $employee->id, 'title' => 'Day shift',
+            'starts_at' => '2027-03-01 09:00:00', 'ends_at' => '2027-03-01 17:00:00',
+            'break_minutes' => 30, 'status' => 'draft', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $booking = [
+            'employee_id' => $employee->id, 'leave_type' => 'annual',
+            'start_date' => '2027-03-01', 'end_date' => '2027-03-01',
+        ];
+
+        $this->actingAs($admin, 'web')->post('/leave/requests/book', $booking)->assertSessionHasErrors('confirm_booking');
+        $this->actingAs($admin, 'web')->post('/leave/requests/book', [...$booking, 'confirm_booking' => '1'])
+            ->assertSessionHasErrors('decision');
+        $this->assertDatabaseCount('leave_requests', 0);
+    }
+
     public function test_employee_cannot_view_or_cancel_another_business_leave_request(): void
     {
         [$businessA, $adminA, $employeeA] = $this->workspace('alpha');

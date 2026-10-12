@@ -4,8 +4,8 @@
 <div class="page-heading"><div><span class="eyebrow">Workforce planning</span><h1>Rota & shifts</h1><p>Build this week’s schedule and check it against leave requests and company closures before publishing.</p></div>
     <div class="rota-export-actions">
         <span class="caption">Download a print-ready PDF.</span>
-        <a class="button secondary" href="{{url('/rota/export?'.http_build_query(['period'=>'week','date'=>$start->toDateString()]))}}">Download week PDF</a>
-        <form method="get" action="{{url('/rota/export')}}" class="rota-month-export"><input type="hidden" name="period" value="month"><label for="rota_export_month">Month<input type="month" id="rota_export_month" name="month" value="{{$start->format('Y-m')}}" required></label><button class="secondary">Download month PDF</button></form>
+        <form method="get" action="{{url('/rota/export')}}" class="rota-week-export"><input type="hidden" name="period" value="week"><input type="hidden" name="date" value="{{$start->toDateString()}}"><label class="rota-break-toggle"><input type="checkbox" name="show_breaks" value="1"> Include break times</label><button class="secondary">Download week PDF</button></form>
+        <form method="get" action="{{url('/rota/export')}}" class="rota-month-export"><input type="hidden" name="period" value="month"><label for="rota_export_month">Month<input type="month" id="rota_export_month" name="month" value="{{$start->format('Y-m')}}" required></label><label class="rota-break-toggle"><input type="checkbox" name="show_breaks" value="1"> Include break times</label><button class="secondary">Download month PDF</button></form>
     </div>
 </div>
 

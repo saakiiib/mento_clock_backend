@@ -21,7 +21,7 @@ class ComplianceController
         $businessId = (int) $request->user()->business_id;
         $employees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->orderBy('name')->get(['id', 'name', 'employee_code', 'active']);
         $documents = DB::table('employee_documents as d')->join('users as u', 'u.id', '=', 'd.user_id')
-            ->where('d.business_id', $businessId)->orderByRaw("CASE WHEN d.expiry_date IS NULL THEN 1 ELSE 0 END")
+            ->where('d.business_id', $businessId)->whereNull('d.archived_at')->orderByRaw("CASE WHEN d.expiry_date IS NULL THEN 1 ELSE 0 END")
             ->orderBy('d.expiry_date')->orderByDesc('d.created_at')
             ->select('d.*', 'u.name as employee_name', 'u.employee_code')->get();
         $training = DB::table('employee_training_records as t')->join('users as u', 'u.id', '=', 't.user_id')
@@ -71,7 +71,7 @@ class ComplianceController
 
     public function download(Request $request, int $documentId)
     {
-        $document = DB::table('employee_documents')->where('business_id', (int) $request->user()->business_id)->where('id', $documentId)->firstOrFail();
+        $document = DB::table('employee_documents')->where('business_id', (int) $request->user()->business_id)->whereNull('archived_at')->where('id', $documentId)->firstOrFail();
         abort_unless(Storage::disk('local')->exists($document->storage_path), 404);
         $this->event((int) $request->user()->business_id, $request->user()->id, 'employee_document', $documentId, 'downloaded');
         return Storage::disk('local')->download($document->storage_path, $document->original_name, ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff']);
@@ -80,7 +80,7 @@ class ComplianceController
     public function review(Request $request, int $documentId)
     {
         $businessId = (int) $request->user()->business_id;
-        $document = DB::table('employee_documents')->where('business_id', $businessId)->where('id', $documentId)->firstOrFail();
+        $document = DB::table('employee_documents')->where('business_id', $businessId)->whereNull('archived_at')->where('id', $documentId)->firstOrFail();
         $values = $request->validate(['status' => ['required', Rule::in(['accepted', 'rejected', 'pending_review'])], 'review_note' => 'nullable|string|max:1000']);
         DB::table('employee_documents')->where('business_id', $businessId)->where('id', $documentId)->update([
             'status' => $values['status'], 'review_note' => $values['review_note'] ?? null,
@@ -93,7 +93,7 @@ class ComplianceController
     public function deleteDocument(Request $request, int $documentId)
     {
         $businessId = (int) $request->user()->business_id;
-        $document = DB::table('employee_documents')->where('business_id', $businessId)->where('id', $documentId)->firstOrFail();
+        $document = DB::table('employee_documents')->where('business_id', $businessId)->whereNull('archived_at')->where('id', $documentId)->firstOrFail();
         DB::table('employee_documents')->where('business_id', $businessId)->where('id', $documentId)->delete();
         Storage::disk('local')->delete($document->storage_path);
         $this->event($businessId, $request->user()->id, 'employee_document', $documentId, 'deleted');

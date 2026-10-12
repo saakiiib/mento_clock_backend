@@ -62,7 +62,7 @@ class HrReportController
             $rotaHours += max(0, ($overlapSeconds - $allocatedBreakSeconds) / 3600);
         }
 
-        $compliance = DB::table('employee_documents')->where('business_id', $businessId)->whereNotNull('expiry_date')
+        $compliance = DB::table('employee_documents')->where('business_id', $businessId)->whereNull('archived_at')->whereNotNull('expiry_date')
             ->whereBetween('expiry_date', [$fromDate, $toDate])->where('status', '!=', 'rejected')->count();
         $training = DB::table('employee_training_records')->where('business_id', $businessId)->whereNotNull('expires_on')
             ->whereBetween('expires_on', [$fromDate, $toDate])->count();

@@ -48,7 +48,7 @@ class HrReminderService
         $query = DB::table($table.' as r')->join('users as u', function ($join) use ($businessId) {
             $join->on('u.id', '=', 'r.user_id')->where('u.business_id', '=', $businessId);
         })->where('r.business_id', $businessId)->whereNotNull('r.'.$dateColumn)->where('r.'.$dateColumn, '<=', $cutoff);
-        if ($kind === 'document') $query->where('r.status', '!=', 'rejected');
+        if ($kind === 'document') $query->where('r.status', '!=', 'rejected')->whereNull('r.archived_at');
         $items = $query->select('r.id', 'r.'.$dateColumn.' as expires_on', 'u.name')->get();
         $created = 0;
         foreach ($items as $item) {

@@ -23,7 +23,10 @@ class RolePermissionController
         $businessId = $this->businessId($request);
         WorkspacePermissions::seedDefaultRoles($businessId);
         $roles = DB::table('business_roles')->where('business_id', $businessId)->orderBy('name')->get()->map(function ($role) {
-            $role->permissions = is_array($role->permissions) ? $role->permissions : json_decode($role->permissions, true) ?: [];
+            if (! is_array($role->permissions)) {
+                $role->permissions = json_decode($role->permissions, true) ?: [];
+            }
+
             return $role;
         });
         $employees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->orderBy('name')->get(['id', 'name', 'employee_code', 'business_role_id']);

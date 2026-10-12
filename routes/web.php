@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
-use App\Http\Controllers\{AdminController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController};
+use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController};
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -73,6 +73,11 @@ Route::middleware(['auth','active.business','workspace.access'])->group(function
  Route::post('/roles',[RolePermissionController::class,'store'])->middleware(['module.enabled:role_permissions','role.permission:roles.manage']);
  Route::post('/roles/{roleId}',[RolePermissionController::class,'update'])->whereNumber('roleId')->middleware(['module.enabled:role_permissions','role.permission:roles.manage']);
  Route::post('/roles/assign',[RolePermissionController::class,'assign'])->middleware(['module.enabled:role_permissions','role.permission:roles.manage']);
+ Route::get('/documents',[DocumentManagementController::class,'index'])->middleware(['module.enabled:document_management','role.permission:documents.view']);
+ Route::get('/documents/download-report',[DocumentManagementController::class,'downloadReport'])->middleware(['module.enabled:document_management','role.permission:reports.export']);
+ Route::get('/documents/{kind}/{documentId}/download',[DocumentManagementController::class,'download'])->whereIn('kind',['employee','organisation'])->whereNumber('documentId')->middleware(['module.enabled:document_management','role.permission:documents.download']);
+ Route::post('/documents/{kind}/{documentId}/archive',[DocumentManagementController::class,'archive'])->whereIn('kind',['employee','organisation'])->whereNumber('documentId')->middleware(['module.enabled:document_management','role.permission:documents.manage']);
+ Route::post('/documents/{kind}/{documentId}/restore',[DocumentManagementController::class,'restore'])->whereIn('kind',['employee','organisation'])->whereNumber('documentId')->middleware(['module.enabled:document_management','role.permission:documents.manage']);
 });
 Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalidate();$r->session()->regenerateToken();return redirect('/login');})->middleware('auth');
 

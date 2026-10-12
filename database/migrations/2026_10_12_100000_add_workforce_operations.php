@@ -46,7 +46,7 @@ return new class extends Migration
                 $table->timestamp('completed_at')->nullable();
                 $table->timestamps();
                 $table->index(['business_id', 'type', 'status']);
-                $table->index(['business_id', 'user_id', 'effective_date'], 'employee_lifecycle_cases_business_user_effective_date_index');
+                $table->index(['business_id', 'user_id', 'effective_date']);
             });
         }
         if (!Schema::hasTable('employee_lifecycle_tasks')) {

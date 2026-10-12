@@ -61,7 +61,7 @@ class OrganisationProfileController
                 'closes_at' => $hours[$day]['closes_at'] ?? '17:00',
             ];
         }
-        $documents = DB::table('client_organisation_documents')->where('business_id', $businessId)->orderByDesc('created_at')->get();
+        $documents = DB::table('client_organisation_documents')->where('business_id', $businessId)->whereNull('archived_at')->orderByDesc('created_at')->get();
         $logo = $documents->firstWhere('category', 'logo');
         $businessDocuments = $documents->where('category', '!=', 'logo');
 
@@ -190,8 +190,8 @@ class OrganisationProfileController
             DB::transaction(function () use ($request, $businessId, $category, $file, $path, &$oldLogoPaths) {
                 if ($category === 'logo') {
                     $oldLogoPaths = DB::table('client_organisation_documents')->where('business_id', $businessId)
-                        ->where('category', 'logo')->pluck('storage_path')->all();
-                    DB::table('client_organisation_documents')->where('business_id', $businessId)->where('category', 'logo')->delete();
+                        ->where('category', 'logo')->whereNull('archived_at')->pluck('storage_path')->all();
+                    DB::table('client_organisation_documents')->where('business_id', $businessId)->where('category', 'logo')->whereNull('archived_at')->delete();
                 }
                 $originalName = preg_replace('/[\x00-\x1F\x7F]/', '', basename($file->getClientOriginalName())) ?: 'organisation-document';
                 DB::table('client_organisation_documents')->insert([
@@ -226,7 +226,7 @@ class OrganisationProfileController
     public function download(Request $request, int $documentId)
     {
         $document = DB::table('client_organisation_documents')
-            ->where('business_id', (int) $request->user()->business_id)->where('id', $documentId)->firstOrFail();
+            ->where('business_id', (int) $request->user()->business_id)->whereNull('archived_at')->where('id', $documentId)->firstOrFail();
         abort_unless(Storage::disk('local')->exists($document->storage_path), 404);
         return Storage::disk('local')->download($document->storage_path, $document->original_name);
     }
@@ -234,7 +234,7 @@ class OrganisationProfileController
     public function viewLogo(Request $request, int $documentId): BinaryFileResponse
     {
         $document = DB::table('client_organisation_documents')->where('business_id', (int) $request->user()->business_id)
-            ->where('id', $documentId)->where('category', 'logo')->firstOrFail();
+            ->whereNull('archived_at')->where('id', $documentId)->where('category', 'logo')->firstOrFail();
         abort_unless(str_starts_with($document->mime_type, 'image/') && Storage::disk('local')->exists($document->storage_path), 404);
         return response()->file(Storage::disk('local')->path($document->storage_path), [
             'Content-Type' => $document->mime_type,
@@ -246,7 +246,7 @@ class OrganisationProfileController
     public function delete(Request $request, int $documentId)
     {
         $businessId = (int) $request->user()->business_id;
-        $document = DB::table('client_organisation_documents')->where('business_id', $businessId)->where('id', $documentId)->firstOrFail();
+        $document = DB::table('client_organisation_documents')->where('business_id', $businessId)->whereNull('archived_at')->where('id', $documentId)->firstOrFail();
         DB::transaction(function () use ($request, $businessId, $document) {
             DB::table('client_organisation_documents')->where('business_id', $businessId)->where('id', $document->id)->delete();
             DB::table('client_organisation_events')->insert([

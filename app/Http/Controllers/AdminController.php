@@ -56,8 +56,13 @@ class AdminController {
   if($moduleAccess->enabled($id,'holiday_calendar'))$upcomingHolidayCount=DB::table('business_holidays')->where('business_id',$id)->whereBetween('holiday_date',[$localNow->toDateString(),$localNow->copy()->addDays(30)->toDateString()])->count();
   if($moduleAccess->enabled($id,'compliance_tracking')){
    $dueDate=$localNow->copy()->addDays(60)->toDateString();
-   $complianceDueCount=DB::table('employee_documents')->where('business_id',$id)->whereNotNull('expiry_date')->where('expiry_date','<=',$dueDate)->where('status','!=','rejected')->count()
+   $complianceDueCount=DB::table('employee_documents')->where('business_id',$id)->whereNull('archived_at')->whereNotNull('expiry_date')->where('expiry_date','<=',$dueDate)->where('status','!=','rejected')->count()
     +DB::table('employee_training_records')->where('business_id',$id)->whereIn('status',['valid','expired'])->whereNotNull('expires_on')->where('expires_on','<=',$dueDate)->count();
+  }
+  $documentCount=0;
+  if($moduleAccess->enabled($id,'document_management')){
+   $documentCount=DB::table('employee_documents')->where('business_id',$id)->whereNull('archived_at')->count()
+    +DB::table('client_organisation_documents')->where('business_id',$id)->whereNull('archived_at')->count();
   }
   if($moduleAccess->enabled($id,'company_notices'))$unacknowledgedNoticeCount=DB::table('company_notice_receipts as r')->join('company_notices as n','n.id','=','r.notice_id')->where('r.business_id',$id)->whereNull('r.acknowledged_at')->where('n.status','published')->where('n.acknowledgement_required',true)->where(function($q){$q->whereNull('n.publish_at')->orWhere('n.publish_at','<=',now('UTC'));})->where(function($q){$q->whereNull('n.expires_at')->orWhere('n.expires_at','>',now('UTC'));})->count();
   $openLifecycleTaskCount=$moduleAccess->enabled($id,'employee_lifecycle')?DB::table('employee_lifecycle_tasks')->where('business_id',$id)->whereIn('status',['pending','in_progress','blocked'])->count():0;
@@ -75,9 +80,10 @@ class AdminController {
    'hr_reminders'=>['title'=>'HR reminders','description'=>'Review expiring records and overdue actions.','href'=>'/reminders','icon'=>'calendar','count'=>$unreadHrReminderCount,'unit'=>'items to review'],
    'hr_reports'=>['title'=>'HR reports','description'=>'View workforce, leave, rota and compliance summaries.','href'=>'/reports/hr','icon'=>'report','count'=>'—','unit'=>'workforce insights'],
    'role_permissions'=>['title'=>'Roles & permissions','description'=>'Set staff access to client portal features.','href'=>'/roles','icon'=>'shield','count'=>'—','unit'=>'access settings'],
+   'document_management'=>['title'=>'Documents','description'=>'Find staff and organisation records, create reports and manage archives.','href'=>'/documents','icon'=>'report','count'=>$documentCount,'unit'=>'active documents'],
   ];
   $overviewModules=[];$overviewStats=[];
-  $modulePermissions=['employee_management'=>'people.view','attendance_tracking'=>'attendance.view','reports_analytics'=>'reports.view','leave_management'=>'leave.view','holiday_calendar'=>'leave.view','rota_shifts'=>'rota.view','compliance_tracking'=>'compliance.view','company_notices'=>'notices.view','employee_lifecycle'=>'lifecycle.view','hr_reminders'=>'reminders.view','hr_reports'=>'reports.view','role_permissions'=>'roles.manage'];
+  $modulePermissions=['employee_management'=>'people.view','attendance_tracking'=>'attendance.view','reports_analytics'=>'reports.view','leave_management'=>'leave.view','holiday_calendar'=>'leave.view','rota_shifts'=>'rota.view','compliance_tracking'=>'compliance.view','company_notices'=>'notices.view','employee_lifecycle'=>'lifecycle.view','hr_reminders'=>'reminders.view','hr_reports'=>'reports.view','role_permissions'=>'roles.manage','document_management'=>'documents.view'];
   foreach($definitions as $code=>$module){
    if(!$moduleAccess->enabled($id,$code)||!app(\App\Services\WorkspacePermissions::class)->has($r->user(),$modulePermissions[$code]??'workspace.access'))continue;
    $overviewModules[]=['code'=>$code,...$module];

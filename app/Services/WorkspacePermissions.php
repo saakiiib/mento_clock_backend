@@ -10,10 +10,10 @@ class WorkspacePermissions
     public static function seedDefaultRoles(int $businessId): void
     {
         $sets = [
-            'hr_manager' => ['workspace.access', 'people.view', 'people.manage', 'attendance.view', 'attendance.correct', 'leave.view', 'leave.manage', 'rota.view', 'rota.manage', 'compliance.view', 'compliance.documents.download', 'compliance.manage', 'notices.view', 'notices.manage', 'reports.view', 'reports.export', 'organisation.view', 'organisation.manage', 'lifecycle.view', 'lifecycle.manage', 'reminders.view', 'roles.manage'],
+            'hr_manager' => ['workspace.access', 'people.view', 'people.manage', 'attendance.view', 'attendance.correct', 'leave.view', 'leave.manage', 'rota.view', 'rota.manage', 'compliance.view', 'compliance.documents.download', 'compliance.manage', 'documents.view', 'documents.manage', 'documents.download', 'notices.view', 'notices.manage', 'reports.view', 'reports.export', 'organisation.view', 'organisation.manage', 'lifecycle.view', 'lifecycle.manage', 'reminders.view', 'roles.manage'],
             'rota_manager' => ['workspace.access', 'people.view', 'rota.view', 'rota.manage', 'leave.view', 'reports.view'],
             'supervisor' => ['workspace.access', 'people.view', 'attendance.view', 'leave.view', 'rota.view', 'notices.view', 'reports.view'],
-            'report_viewer' => ['workspace.access', 'people.view', 'attendance.view', 'leave.view', 'rota.view', 'compliance.view', 'notices.view', 'reports.view', 'organisation.view', 'lifecycle.view', 'reminders.view'],
+            'report_viewer' => ['workspace.access', 'people.view', 'attendance.view', 'leave.view', 'rota.view', 'compliance.view', 'documents.view', 'notices.view', 'reports.view', 'organisation.view', 'lifecycle.view', 'reminders.view'],
         ];
         foreach ($sets as $code => $permissions) {
             DB::table('business_roles')->insertOrIgnore([
@@ -31,6 +31,7 @@ class WorkspacePermissions
         'leave.view' => 'View leave and holidays', 'leave.manage' => 'Manage leave and holidays',
         'rota.view' => 'View rota', 'rota.manage' => 'Manage rota',
         'compliance.view' => 'View compliance and training records', 'compliance.documents.download' => 'Download private employee compliance documents', 'compliance.manage' => 'Manage compliance and training',
+        'documents.view' => 'View document registers, reports and archives', 'documents.manage' => 'Archive and restore employee and organisation documents', 'documents.download' => 'Download private employee and organisation documents',
         'notices.view' => 'View company notices', 'notices.manage' => 'Manage company notices',
         'reports.view' => 'View HR and attendance reports', 'reports.export' => 'Export reports',
         'organisation.view' => 'View organisation profile', 'organisation.manage' => 'Edit organisation profile',
@@ -52,6 +53,7 @@ class WorkspacePermissions
             'people.manage' => ['people.view', 'people.sensitive.view'], 'people.sensitive.view' => ['people.view'],
             'attendance.correct' => ['attendance.view'], 'leave.manage' => ['leave.view'], 'rota.manage' => ['rota.view'],
             'compliance.manage' => ['compliance.view', 'compliance.documents.download'], 'notices.manage' => ['notices.view'], 'reports.export' => ['reports.view'],
+            'documents.manage' => ['documents.view', 'documents.download'],
             'organisation.manage' => ['organisation.view'], 'lifecycle.manage' => ['lifecycle.view'], 'roles.manage' => ['workspace.access'],
         ];
         return in_array($permission, $permissions, true) || collect($permissions)->contains(fn ($granted) => in_array($permission, $implied[$granted] ?? [], true));

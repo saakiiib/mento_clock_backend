@@ -79,5 +79,57 @@
 .stat-card{border:1px solid var(--line);border-radius:11px;background:#fff;padding:16px;display:grid;gap:8px}.stat-card span{font-size:10px;color:var(--muted)}.stat-card strong{font-size:24px;font-weight:500;letter-spacing:-.5px}
 @media(max-width:600px){.permission-grid{grid-template-columns:1fr}.lifecycle-case>summary,.role-card>summary{align-items:flex-start;flex-wrap:wrap}.inline-form{min-width:0;flex-wrap:wrap}}
 
+/* Larger type on the client overview for clearer at-a-glance reading. */
+body.client-dashboard-page .workspace-content>main{font-size:15px}
+body.client-dashboard-page .sidebar nav a{font-size:12px}
+body.client-dashboard-page .workspace-badge strong{font-size:12px}
+body.client-dashboard-page .workspace-badge small{font-size:9px}
+body.client-dashboard-page .nav-label{font-size:9px}
+body.client-dashboard-page .breadcrumb{font-size:11px}
+body.client-dashboard-page .account-name strong{font-size:11px}
+body.client-dashboard-page .account-name small{font-size:9px}
+body.client-dashboard-page .page-heading h1{font-size:34px;line-height:1.25}
+body.client-dashboard-page .page-heading p{font-size:15px;line-height:1.7;max-width:760px}
+body.client-dashboard-page .page-heading .button{font-size:13px;padding:12px 18px}
+body.client-dashboard-page .module-stats .stat{padding:23px}
+body.client-dashboard-page .module-stats .stat-head{font-size:11px;letter-spacing:.35px;color:#68717d}
+body.client-dashboard-page .module-stats .number{font-size:38px;margin:14px 0 8px}
+body.client-dashboard-page .module-stats .stat small{font-size:12px;line-height:1.55;color:#69727e}
+body.client-dashboard-page .section-intro h2{font-size:23px}
+body.client-dashboard-page .section-intro p{font-size:14px;line-height:1.65}
+body.client-dashboard-page .workspace-module{padding:22px;gap:16px}
+body.client-dashboard-page .module-copy>strong{font-size:15px;line-height:1.45}
+body.client-dashboard-page .module-copy>p{font-size:13px;line-height:1.65;margin-bottom:12px}
+body.client-dashboard-page .module-metric{font-size:12px;color:#596270}
+body.client-dashboard-page .module-metric b{font-size:14px;color:#25272b}
+body.client-dashboard-page .overview-lower .card-head h2{font-size:19px}
+body.client-dashboard-page .overview-lower .card-head p{font-size:12px;line-height:1.65}
+body.client-dashboard-page .quick-link{gap:15px;padding:19px 0}
+body.client-dashboard-page .quick-link strong{font-size:13px;line-height:1.5}
+body.client-dashboard-page .quick-link small{font-size:12px;line-height:1.65;color:#68717d}
+body.client-dashboard-page .overview-lower .week-day{font-size:11px}
+body.client-dashboard-page .overview-lower .week-day strong{font-size:11px}
+body.client-dashboard-page .overview-lower .caption{font-size:11px}
+body.client-dashboard-page #main>section.card .card-head h2{font-size:19px}
+body.client-dashboard-page #main>section.card .card-head p{font-size:12px;line-height:1.65}
+body.client-dashboard-page #main>section.card table{font-size:12px}
+body.client-dashboard-page #main>section.card th{font-size:9px}
+body.client-dashboard-page #main>section.card td{line-height:1.6}
+@media(max-width:600px){
+    body.client-dashboard-page .page-heading h1{font-size:29px}
+    body.client-dashboard-page .module-stats .stat{padding:18px 15px}
+    body.client-dashboard-page .module-stats .stat-head{font-size:10px}
+    body.client-dashboard-page .module-stats .number{font-size:32px}
+    body.client-dashboard-page .module-stats .stat small{font-size:11px}
+    body.client-dashboard-page .workspace-module{padding:18px}
+}
+
+.document-tabs{display:flex;gap:8px;overflow-x:auto;margin:0 0 22px;padding-bottom:4px}
+.document-tabs a{flex:0 0 auto;padding:11px 15px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#596270;font-size:12px;text-decoration:none}
+.document-tabs a.current{background:#fff1e6;border-color:#f1d0b5;color:#a9551f;font-weight:600}
+.document-filter{display:grid;grid-template-columns:minmax(220px,420px) auto;gap:12px;align-items:end;margin:0 0 20px}
+.document-filter label{grid-column:1/-1;margin:0 0 -8px}
+@media(max-width:600px){.document-filter{grid-template-columns:1fr}.document-filter button{justify-self:start}}
+
 /* Compliance, training and company notice registers */
 .badge.warning{background:#fff4e5;color:#9a5b17}.badge.success{background:#edf7f0;color:#35734b}.badge.neutral{background:#f1f2f4;color:#606873}.table-sub{display:block;margin-top:3px;max-width:420px;white-space:normal}.check-row{padding-top:14px}.check-row label{display:flex;align-items:center;gap:9px;margin:8px 0}.check-row input{flex:0 0 auto}.scroll table td{vertical-align:top}.actions details{position:relative}.actions details summary{cursor:pointer;color:#a65832;font-size:11px}.actions details form{position:absolute;z-index:3;right:0;top:24px;width:min(290px,80vw);padding:14px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px #25272b1a}.actions details input{margin-bottom:8px}.empty-state p:last-child{margin-bottom:0}

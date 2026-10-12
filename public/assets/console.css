@@ -133,3 +133,38 @@ body.client-dashboard-page #main>section.card td{line-height:1.6}
 
 /* Compliance, training and company notice registers */
 .badge.warning{background:#fff4e5;color:#9a5b17}.badge.success{background:#edf7f0;color:#35734b}.badge.neutral{background:#f1f2f4;color:#606873}.table-sub{display:block;margin-top:3px;max-width:420px;white-space:normal}.check-row{padding-top:14px}.check-row label{display:flex;align-items:center;gap:9px;margin:8px 0}.check-row input{flex:0 0 auto}.scroll table td{vertical-align:top}.actions details{position:relative}.actions details summary{cursor:pointer;color:#a65832;font-size:11px}.actions details form{position:absolute;z-index:3;right:0;top:24px;width:min(290px,80vw);padding:14px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px #25272b1a}.actions details input{margin-bottom:8px}.empty-state p:last-child{margin-bottom:0}
+
+/* Client portal readability and full-height navigation */
+.sidebar{overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.sidebar nav,.sidebar-bottom{flex-shrink:0}
+body.client-page,body.client-dashboard-page{font-size:15px}
+body.client-page .sidebar nav a,body.client-dashboard-page .sidebar nav a{font-size:13px;line-height:1.5;padding:13px}
+body.client-page .workspace-badge strong,body.client-dashboard-page .workspace-badge strong{font-size:13px}
+body.client-page .workspace-badge small,body.client-dashboard-page .workspace-badge small{font-size:11px}
+body.client-page .nav-label,body.client-dashboard-page .nav-label{font-size:10px}
+body.client-page .sidebar-bottom,body.client-dashboard-page .sidebar-bottom{font-size:13px}
+body.client-page .support-note .eyebrow,body.client-dashboard-page .support-note .eyebrow{font-size:10px}
+body.client-page .support-note p,body.client-dashboard-page .support-note p{font-size:13px}
+body.client-page .support-note a,body.client-dashboard-page .support-note a{font-size:12px}
+body.client-page .powered-by,body.client-dashboard-page .powered-by{font-size:11px}
+body.client-page .breadcrumb,body.client-dashboard-page .breadcrumb{font-size:12px}
+body.client-page .account-name strong,body.client-dashboard-page .account-name strong{font-size:13px}
+body.client-page .account-name small,body.client-dashboard-page .account-name small{font-size:11px}
+body.client-page .workspace-content>main,body.client-dashboard-page .workspace-content>main{font-size:15px}
+body.client-page #main p,body.client-dashboard-page #main p{font-size:14px;line-height:1.7}
+body.client-page #main small,body.client-dashboard-page #main small{font-size:12px}
+body.client-page #main .eyebrow,body.client-dashboard-page #main .eyebrow{font-size:10px}
+body.client-page #main label,body.client-dashboard-page #main label{font-size:13px}
+body.client-page #main input,body.client-page #main select,body.client-page #main textarea,body.client-dashboard-page #main input,body.client-dashboard-page #main select,body.client-dashboard-page #main textarea{font-size:14px}
+body.client-page #main button,body.client-page #main .button,body.client-dashboard-page #main button,body.client-dashboard-page #main .button{font-size:14px}
+body.client-page #main table,body.client-dashboard-page #main table{font-size:13px}
+body.client-page #main th,body.client-dashboard-page #main th{font-size:11px}
+body.client-page #main .badge,body.client-dashboard-page #main .badge{font-size:11px}
+body.client-page .console-footer,body.client-dashboard-page .console-footer{font-size:12px;line-height:1.6}
+.task-action-link{display:inline-block;margin-top:6px;font-size:12px;font-weight:500}
+#add-employee-document,#add-training-record,#employee-documents,#training-records,#bank-details,#emergency-contact,#employment-access{scroll-margin-top:24px}
+@media(max-width:600px){
+    body.client-page #main p,body.client-dashboard-page #main p{font-size:14px}
+    body.client-page .sidebar,body.client-dashboard-page .sidebar{width:min(300px,88vw)}
+    body.client-page .console-footer,body.client-dashboard-page .console-footer{font-size:12px}
+}

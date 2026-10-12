@@ -33,7 +33,7 @@
 </div>
 
 <div class="two equal">
-    <section class="card">
+    <section class="card" id="add-employee-document">
         <div class="card-head">
             <div>
                 <span class="eyebrow">PRIVATE RECORDS</span>
@@ -47,7 +47,7 @@
             <select name="employee_id" id="employee_id" required>
                 <option value="">Select employee</option>
                 @foreach ($employees as $employee)
-                    <option value="{{ $employee->id }}" @selected(old('employee_id') == $employee->id)>
+                    <option value="{{ $employee->id }}" @selected((string) old('employee_id', $selectedEmployeeId) === (string) $employee->id)>
                         {{ $employee->name }}{{ $employee->employee_code ? ' · '.$employee->employee_code : '' }}
                     </option>
                 @endforeach
@@ -57,7 +57,7 @@
                     <label for="category">Document category</label>
                     <select name="category" id="category" required>
                         @foreach ($categories as $key => $label)
-                            <option value="{{ $key }}" @selected(old('category') === $key)>{{ $label }}</option>
+                            <option value="{{ $key }}" @selected(old('category', $selectedCategory) === $key)>{{ $label }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -82,7 +82,7 @@
         </form>
     </section>
 
-    <section class="card">
+        <section class="card" id="add-training-record">
         <div class="card-head">
             <div>
                 <span class="eyebrow">LEARNING &amp; DEVELOPMENT</span>
@@ -96,7 +96,7 @@
             <select name="employee_id" id="training_employee_id" required>
                 <option value="">Select employee</option>
                 @foreach ($employees as $employee)
-                    <option value="{{ $employee->id }}">{{ $employee->name }}</option>
+                    <option value="{{ $employee->id }}" @selected((string) $selectedEmployeeId === (string) $employee->id)>{{ $employee->name }}</option>
                 @endforeach
             </select>
             <label for="course_name">Course or certificate</label>
@@ -128,7 +128,7 @@
     </section>
 </div>
 
-<section class="card">
+<section class="card" id="employee-documents">
     <div class="card-head">
         <div>
             <span class="eyebrow">DOCUMENT REGISTER</span>
@@ -167,7 +167,6 @@
                                         <button class="secondary">Accept</button>
                                     </form>
                                     <details>
-                                        <summary>Reject</summary>
                                         <form method="post" action="{{ url('/compliance/documents/'.$doc->id.'/review') }}">
                                             @csrf
                                             <input type="hidden" name="status" value="rejected">
@@ -185,14 +184,14 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="5"><div class="empty-state"><h3>No employee documents yet.</h3><p>Upload right-to-work, contract or certificate records to start the register.</p></div></td></tr>
+                    <tr><td colspan="5"><div class="empty-state"><h3>No employee documents match this view.</h3><p>Upload right-to-work, contract or certificate records to start the register.</p><a class="button secondary" href="#add-employee-document">Add employee document</a></div></td></tr>
                 @endforelse
             </tbody>
         </table>
     </div>
 </section>
 
-<section class="card">
+<section class="card" id="training-records">
     <div class="card-head">
         <div><span class="eyebrow">RENEWALS</span><h2>Training and certification</h2></div>
     </div>

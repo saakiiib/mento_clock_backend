@@ -11,8 +11,8 @@
     </div>
     @if (in_array($tab, ['staff', 'organisation', 'employee'], true))
         <div class="actions">
-            <a class="button secondary" href="{{ url('/documents/download-report?'.http_build_query(array_merge(request()->query(), ['format' => 'csv'])) }}">Download CSV</a>
-            <a class="button" href="{{ url('/documents/download-report?'.http_build_query(array_merge(request()->query(), ['format' => 'pdf'])) }}">Download PDF</a>
+            <a class="button secondary" href="{{ url('/documents/download-report?'.http_build_query(array_merge(request()->query(), ['format' => 'csv']))) }}">Download CSV</a>
+            <a class="button" href="{{ url('/documents/download-report?'.http_build_query(array_merge(request()->query(), ['format' => 'pdf']))) }}">Download PDF</a>
         </div>
     @endif
 </div>

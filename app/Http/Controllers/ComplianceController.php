@@ -19,13 +19,27 @@ class ComplianceController
     public function index(Request $request)
     {
         $businessId = (int) $request->user()->business_id;
+        $filters = $request->validate([
+            'employee_id' => 'nullable|integer',
+            'category' => ['nullable', Rule::in(array_keys(self::CATEGORIES))],
+            'section' => ['nullable', Rule::in(['training'])],
+        ]);
+        $employeeId = $filters['employee_id'] ?? null;
+        if ($employeeId) {
+            abort_unless(DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->where('id', $employeeId)->exists(), 404);
+        }
         $employees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->orderBy('name')->get(['id', 'name', 'employee_code', 'active']);
         $documents = DB::table('employee_documents as d')->join('users as u', 'u.id', '=', 'd.user_id')
-            ->where('d.business_id', $businessId)->whereNull('d.archived_at')->orderByRaw("CASE WHEN d.expiry_date IS NULL THEN 1 ELSE 0 END")
+            ->where('d.business_id', $businessId)->whereNull('d.archived_at')
+            ->when($employeeId, fn ($query) => $query->where('d.user_id', $employeeId))
+            ->when($filters['category'] ?? null, fn ($query, $category) => $query->where('d.category', $category))
+            ->orderByRaw("CASE WHEN d.expiry_date IS NULL THEN 1 ELSE 0 END")
             ->orderBy('d.expiry_date')->orderByDesc('d.created_at')
             ->select('d.*', 'u.name as employee_name', 'u.employee_code')->get();
         $training = DB::table('employee_training_records as t')->join('users as u', 'u.id', '=', 't.user_id')
-            ->where('t.business_id', $businessId)->orderByRaw("CASE WHEN t.expires_on IS NULL THEN 1 ELSE 0 END")
+            ->where('t.business_id', $businessId)
+            ->when($employeeId, fn ($query) => $query->where('t.user_id', $employeeId))
+            ->orderByRaw("CASE WHEN t.expires_on IS NULL THEN 1 ELSE 0 END")
             ->orderBy('t.expires_on')->orderBy('u.name')
             ->select('t.*', 'u.name as employee_name', 'u.employee_code')->get();
         $timezone = DB::table('businesses')->where('id', $businessId)->value('timezone') ?: 'UTC';
@@ -37,6 +51,8 @@ class ComplianceController
         return view('compliance.index', [
             'employees' => $employees, 'documents' => $documents, 'training' => $training,
             'categories' => self::CATEGORIES, 'dueSoon' => $dueSoon, 'today' => $today,
+            'selectedEmployeeId' => $employeeId, 'selectedCategory' => $filters['category'] ?? null,
+            'selectedSection' => $filters['section'] ?? null,
         ]);
     }
 

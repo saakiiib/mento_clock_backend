@@ -33,10 +33,23 @@
     <div class="note" style="margin:0 0 18px">Booking creates an approved leave record immediately. Annual leave is checked against the employee’s remaining configured allowance. Existing leave and rota conflicts are checked before saving; applicable public holidays are excluded from counted working days.</div>
     <form method="post" action="{{url('/leave/requests/book')}}">@csrf
         <div class="form-two">
-            <div><label for="book_leave_employee">Employee</label><select id="book_leave_employee" name="employee_id" required><option value="">Choose an employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}" @selected((string)old('employee_id') === (string)$employee->id)>{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></div>
+            <div><label for="book_leave_employee">Employee</label><select id="book_leave_employee" name="employee_id" required data-leave-employee><option value="">Choose an employee</option>@foreach($employees as $employee)@php $calendarWorkDays = $employee->working_days ? json_decode($employee->working_days, true) : ['mon','tue','wed','thu','fri']; @endphp<option value="{{$employee->id}}" data-working-days="{{json_encode(is_array($calendarWorkDays) ? $calendarWorkDays : ['mon','tue','wed','thu','fri'])}}" data-shifts="{{json_encode($calendarShifts->get($employee->id, []))}}" @selected((string)old('employee_id') === (string)$employee->id)>{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></div>
             <div><label for="book_leave_type">Leave type</label><select id="book_leave_type" name="leave_type" required>@foreach(['annual'=>'Annual leave','sick'=>'Sick leave','unpaid'=>'Unpaid leave','compassionate'=>'Compassionate leave','other'=>'Other'] as $value=>$label)<option value="{{$value}}" @selected(old('leave_type','annual') === $value)>{{$label}}</option>@endforeach</select></div>
-            <div><label for="book_leave_start">Start date</label><input id="book_leave_start" type="date" name="start_date" value="{{old('start_date')}}" required></div>
-            <div><label for="book_leave_end">End date</label><input id="book_leave_end" type="date" name="end_date" value="{{old('end_date')}}" required></div>
+            <div style="grid-column:1/-1" data-leave-calendar data-region="{{$policy->holiday_region}}" data-holidays="{{json_encode($calendarHolidays)}}">
+                <label>Holiday dates</label>
+                <input id="book_leave_start" type="hidden" name="start_date" value="{{old('start_date')}}">
+                <input id="book_leave_end" type="hidden" name="end_date" value="{{old('end_date')}}">
+                <button type="button" class="secondary" data-calendar-toggle aria-expanded="false">Choose dates</button>
+                <span class="caption" data-calendar-summary aria-live="polite">Choose an employee, then select the first and last date.</span>
+                <div class="leave-calendar-panel" data-calendar-panel hidden>
+                    <div class="leave-calendar-toolbar"><button type="button" class="secondary" data-calendar-prev aria-label="Previous month">‹</button><strong data-calendar-month></strong><button type="button" class="secondary" data-calendar-next aria-label="Next month">›</button></div>
+                    <div class="leave-calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+                    <div class="leave-calendar-grid" data-calendar-grid role="group" aria-label="Choose leave date range"></div>
+                    <div class="leave-calendar-legend"><span><i class="calendar-dot work"></i>Employee normally works</span><span><i class="calendar-dot off"></i>Not a working day</span><span><i class="calendar-dot rota"></i>Rota shift assigned</span><span><i class="calendar-dot closure"></i>Business closed / holiday</span></div>
+                    <p class="leave-calendar-count" data-calendar-count>Select an employee to see working days and allowance deduction.</p>
+                    <button type="button" class="secondary" data-calendar-done>Done</button>
+                </div>
+            </div>
             <div style="grid-column:1/-1"><label for="book_leave_reason">Reason or note (optional)</label><textarea id="book_leave_reason" name="reason" rows="2" maxlength="2000">{{old('reason')}}</textarea></div>
         </div>
         <div class="check-row"><label><input type="checkbox" name="confirm_booking" value="1" required @checked(old('confirm_booking'))> I confirm this booking was agreed with the employee and should be approved now.</label></div>

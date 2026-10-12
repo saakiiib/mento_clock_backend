@@ -54,6 +54,7 @@ Route::middleware(['auth','active.business','workspace.access'])->group(function
  Route::get('/compliance',[ComplianceController::class,'index'])->middleware(['module.enabled:compliance_tracking','role.permission:compliance.view']);
  Route::post('/compliance/documents',[ComplianceController::class,'upload'])->middleware(['module.enabled:compliance_tracking','role.permission:compliance.manage']);
  Route::get('/compliance/documents/{documentId}/download',[ComplianceController::class,'download'])->whereNumber('documentId')->middleware(['module.enabled:compliance_tracking','role.permission:compliance.documents.download']);
+ Route::get('/compliance/documents/{documentId}/view',[ComplianceController::class,'viewDocument'])->whereNumber('documentId')->middleware(['module.enabled:compliance_tracking','role.permission:compliance.documents.download']);
  Route::post('/compliance/documents/{documentId}/review',[ComplianceController::class,'review'])->whereNumber('documentId')->middleware(['module.enabled:compliance_tracking','role.permission:compliance.manage']);
  Route::post('/compliance/documents/{documentId}/delete',[ComplianceController::class,'deleteDocument'])->whereNumber('documentId')->middleware(['module.enabled:compliance_tracking','role.permission:compliance.manage']);
  Route::post('/compliance/training',[ComplianceController::class,'saveTraining'])->middleware(['module.enabled:compliance_tracking','role.permission:compliance.manage']);

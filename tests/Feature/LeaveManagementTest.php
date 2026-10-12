@@ -94,6 +94,20 @@ class LeaveManagementTest extends TestCase
             ->assertJsonPath('requests.0.status', 'approved');
     }
 
+    public function test_admin_booking_counts_only_the_employees_working_days_in_a_selected_range(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('weekend-range');
+
+        $this->actingAs($admin, 'web')->post('/leave/requests/book', [
+            'employee_id' => $employee->id, 'leave_type' => 'annual',
+            'start_date' => '2026-10-25', 'end_date' => '2026-10-26',
+            'confirm_booking' => '1',
+        ])->assertRedirect()->assertSessionHas('status');
+
+        $request = DB::table('leave_requests')->where('business_id', $businessId)->firstOrFail();
+        $this->assertSame('1.00', number_format((float) $request->working_days, 2, '.', ''));
+    }
+
     public function test_admin_booking_requires_confirmation_and_respects_rota_conflicts(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('admin-booking-conflict');

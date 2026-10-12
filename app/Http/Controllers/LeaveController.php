@@ -64,13 +64,28 @@ class LeaveController
 
         $today = CarbonImmutable::now($this->timezone($businessId))->startOfDay();
         $holidays = DB::table('business_holidays')->where('business_id', $businessId)
-            ->whereBetween('holiday_date', [$today->toDateString(), $today->addMonths(12)->toDateString()])
+            ->whereBetween('holiday_date', [$today->subYear()->toDateString(), $today->addYears(2)->toDateString()])
             ->orderBy('holiday_date')->get();
         $adminEvents = DB::table('leave_admin_events as e')->leftJoin('users as u', function ($join) use ($businessId) {
             $join->on('u.id', '=', 'e.actor_id')->where('u.business_id', '=', $businessId);
         })->where('e.business_id', $businessId)->select('e.*', 'u.name as actor_name')->orderByDesc('e.id')->limit(40)->get();
+        $calendarHolidays = $holidays->map(static fn ($holiday) => [
+            'date' => (string) $holiday->holiday_date, 'name' => $holiday->name,
+            'region' => $holiday->region, 'closed' => (bool) $holiday->is_closure,
+        ])->values()->all();
+        $rotaFrom = $today->subYear()->utc()->toDateTimeString();
+        $rotaTo = $today->addYears(2)->utc()->toDateTimeString();
+        $calendarShifts = DB::table('rota_shifts')->where('business_id', $businessId)
+            ->whereIn('status', ['draft', 'published'])->whereBetween('starts_at', [$rotaFrom, $rotaTo])
+            ->get(['user_id', 'starts_at', 'ends_at', 'status'])->groupBy('user_id')->map(function ($shifts) use ($today) {
+                return $shifts->map(function ($shift) use ($today) {
+                    $startAt = CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($today->getTimezone());
+                    $endAt = CarbonImmutable::parse($shift->ends_at, 'UTC')->setTimezone($today->getTimezone());
+                    return ['date' => $startAt->toDateString(), 'time' => $startAt->format('H:i').'–'.$endAt->format('H:i'), 'status' => $shift->status];
+                })->values()->all();
+            });
 
-        return view('leave.index', compact('policy', 'employees', 'balances', 'requests', 'holidays', 'adminEvents', 'tab'));
+        return view('leave.index', compact('policy', 'employees', 'balances', 'requests', 'holidays', 'calendarHolidays', 'calendarShifts', 'adminEvents', 'tab'));
     }
 
     public function calendar(Request $request)

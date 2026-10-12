@@ -158,6 +158,9 @@
                         <td>
                             <div class="actions">
                                 @if (app(\App\Services\WorkspacePermissions::class)->has(auth()->user(), 'compliance.documents.download'))
+                                    @if (in_array(strtolower(pathinfo($doc->original_name, PATHINFO_EXTENSION)), ['pdf', 'jpg', 'jpeg', 'png'], true))
+                                        <a href="{{ url('/compliance/documents/'.$doc->id.'/view') }}" target="_blank" rel="noopener">View</a>
+                                    @endif
                                     <a href="{{ url('/compliance/documents/'.$doc->id.'/download') }}">Download</a>
                                 @endif
                                 @if ($doc->status === 'pending_review')

@@ -93,6 +93,32 @@ class ComplianceController
         return Storage::disk('local')->download($document->storage_path, $document->original_name, ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff']);
     }
 
+    public function viewDocument(Request $request, int $documentId)
+    {
+        $businessId = (int) $request->user()->business_id;
+        $document = DB::table('employee_documents')->where('business_id', $businessId)->whereNull('archived_at')->where('id', $documentId)->firstOrFail();
+        abort_unless(Storage::disk('local')->exists($document->storage_path), 404);
+
+        // Only render safe preview formats inline. Office files remain download-only.
+        $extension = strtolower(pathinfo($document->original_name, PATHINFO_EXTENSION));
+        $contentType = match ($extension) {
+            'pdf' => 'application/pdf',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            default => null,
+        };
+        abort_if($contentType === null, 404);
+
+        $this->event($businessId, $request->user()->id, 'employee_document', $documentId, 'viewed');
+
+        return Storage::disk('local')->response($document->storage_path, $document->original_name, [
+            'Cache-Control' => 'private, no-store',
+            'Content-Type' => $contentType,
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Security-Policy' => "default-src 'none'; sandbox",
+        ], 'inline');
+    }
+
     public function review(Request $request, int $documentId)
     {
         $businessId = (int) $request->user()->business_id;

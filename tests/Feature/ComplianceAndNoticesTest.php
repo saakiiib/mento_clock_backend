@@ -37,6 +37,10 @@ class ComplianceAndNoticesTest extends TestCase
         $document = DB::table('employee_documents')->where('business_id', $businessA)->firstOrFail();
         Storage::disk('local')->assertExists($document->storage_path);
         $this->actingAs($adminB)->get('/compliance/documents/'.$document->id.'/download')->assertNotFound();
+        $this->actingAs($adminB)->get('/compliance/documents/'.$document->id.'/view')->assertNotFound();
+        $this->actingAs($adminA)->get('/compliance/documents/'.$document->id.'/view')
+            ->assertOk()->assertHeader('Content-Type', 'application/pdf')->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertDatabaseHas('hr_module_events', ['business_id' => $businessA, 'subject_type' => 'employee_document', 'action' => 'viewed']);
         $this->actingAs($adminA)->post('/compliance/documents/'.$document->id.'/review', ['status' => 'rejected', 'review_note' => 'Please upload a clearer copy.'])->assertRedirect();
         $this->assertDatabaseHas('employee_documents', ['id' => $document->id, 'business_id' => $businessA, 'status' => 'rejected', 'review_note' => 'Please upload a clearer copy.']);
         $this->assertDatabaseHas('hr_module_events', ['business_id' => $businessA, 'subject_type' => 'employee_document', 'action' => 'reviewed']);

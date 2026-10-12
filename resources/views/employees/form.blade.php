@@ -2,7 +2,7 @@
 @php($assigned = $assigned ?? [])
 @php($canManageEmployee = $canManageEmployee ?? true)
 @if($errors->any())<div class="note" role="alert"><strong>Please check the form.</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
-<form method="post" action="{{$action}}" class="employee-profile-form">
+<form method="post" action="{{$action}}" class="employee-profile-form" enctype="multipart/form-data">
 @if(!$canManageEmployee)<fieldset disabled><div class="note">You have read-only access to this employee’s full profile.</div>@endif
 @csrf
 <section class="card" id="employee-personal-details"><div class="card-head"><div><h2>Personal details</h2><p>Basic identity and contact information.</p></div></div>
@@ -44,6 +44,21 @@
 <label for="job_description">Job description</label><textarea id="job_description" name="job_description" rows="5" maxlength="10000">{{old('job_description',$employee->job_description ?? '')}}</textarea>
 <div class="form-two"><div><label for="reporting_authority_id">Reporting authority</label><select id="reporting_authority_id" name="reporting_authority_id"><option value="">Select</option>@foreach($authorities as $authority)<option value="{{$authority->id}}" @selected((string)old('reporting_authority_id',$employee->reporting_authority_id ?? '')===(string)$authority->id)>{{$authority->name}} · {{$authority->email}}</option>@endforeach</select></div><div><label for="leave_sanction_authority_id">Leave sanction authority</label><select id="leave_sanction_authority_id" name="leave_sanction_authority_id"><option value="">Select</option>@foreach($authorities as $authority)<option value="{{$authority->id}}" @selected((string)old('leave_sanction_authority_id',$employee->leave_sanction_authority_id ?? '')===(string)$authority->id)>{{$authority->name}} · {{$authority->email}}</option>@endforeach</select></div></div>
 <label>Assigned workplaces <span class="caption">Choose where this employee can clock in.</span></label><div class="checks">@forelse($branches as $branch)@php($selected=in_array($branch->id,$assigned))@php($used=$branch->employee_count-(($selected && ($employee?->active ?? false)) ? 1 : 0))@php($full=$used >= $branch->employee_limit)<label><input type="checkbox" name="branches[]" value="{{$branch->id}}" @checked($selected||in_array((string)$branch->id,old('branches',[]))) @disabled($full&&!$selected)> {{$branch->name}} · {{$branch->employee_count}}/{{$branch->employee_limit}} @if($full&&!$selected)(Full)@endif</label>@empty<p class="note">Create an active workplace before adding an employee.</p>@endforelse</div>
+</section>
+
+<section class="card" id="employee-document-upload"><div class="card-head"><div><h2>Employee document</h2><p>Optionally upload a private employee file with this profile. It will be marked as pending review.</p></div></div>
+@if($canUploadEmployeeDocuments)
+<div class="form-two">
+    <div><label for="document_category">Document category</label><select id="document_category" name="document_category"><option value="">Choose a category</option>@foreach(['right_to_work'=>'Right to work','passport'=>'Passport','visa_brp'=>'Visa / BRP','cos'=>'Certificate of Sponsorship','contract'=>'Employment contract','qualification'=>'Qualification','insurance'=>'Insurance','other'=>'Other'] as $key=>$label)<option value="{{$key}}" @selected(old('document_category')===$key)>{{$label}}</option>@endforeach</select></div>
+    <div><label for="document_title">Document name</label><input id="document_title" name="document_title" maxlength="160" value="{{old('document_title')}}" placeholder="e.g. Right-to-work check"></div>
+    <div><label for="document_expiry_date">Expiry date (optional)</label><input id="document_expiry_date" type="date" name="document_expiry_date" value="{{old('document_expiry_date')}}"></div>
+    <div><label for="employee_document">File (PDF, JPG, PNG, DOC or DOCX; max 15 MB)</label><input id="employee_document" type="file" name="employee_document" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"></div>
+</div>
+<label for="document_notes">Document notes (optional)</label><textarea id="document_notes" name="document_notes" rows="2" maxlength="2000">{{old('document_notes')}}</textarea>
+<p class="caption">Choose a category, name and file together. Upload one file each time you save; repeat to add more documents.</p>
+@else
+<p class="note">Document upload is available to users with Compliance &amp; Training enabled and document-management permission. You can still upload files from the Compliance &amp; Training page if your role has access.</p>
+@endif
 </section>
 
 <section class="card"><div class="card-head"><div><h2>Account access</h2><p>This creates the employee’s existing MentoClock sign-in. Role permissions will be expanded as the portal develops.</p></div></div>

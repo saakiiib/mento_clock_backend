@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\RotaPlanner;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -74,6 +75,43 @@ class RotaController
         $templates = DB::table('rota_templates')->where('business_id', $businessId)->where('active', true)->orderBy('name')->get();
 
         return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'employees', 'branches', 'holidays', 'leave', 'availability', 'templates'));
+    }
+
+    public function export(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $timezone = $this->timezone($businessId);
+        $period = $request->query('period');
+        abort_unless(in_array($period, ['week', 'month'], true), 422, 'Choose a week or month to export.');
+
+        if ($period === 'week') {
+            $values = $request->validate(['date' => 'required|date_format:Y-m-d']);
+            $start = CarbonImmutable::parse($values['date'], $timezone)->startOfWeek();
+            $end = $start->addWeek();
+            $periodLabel = $start->format('d M Y').' – '.$end->subDay()->format('d M Y');
+            $suffix = $start->format('Y-m-d');
+        } else {
+            $values = $request->validate(['month' => ['required', 'date_format:Y-m']]);
+            $start = CarbonImmutable::parse($values['month'].'-01', $timezone)->startOfMonth();
+            $end = $start->addMonth();
+            $periodLabel = $start->format('F Y');
+            $suffix = $start->format('Y-m');
+        }
+
+        $shifts = DB::table('rota_shifts as s')->join('users as u', function ($join) use ($businessId) {
+            $join->on('u.id', '=', 's.user_id')->where('u.business_id', '=', $businessId);
+        })->leftJoin('branches as b', function ($join) use ($businessId) {
+            $join->on('b.id', '=', 's.branch_id')->where('b.business_id', '=', $businessId);
+        })->where('s.business_id', $businessId)->whereIn('s.status', ['draft', 'published'])
+            ->where('s.starts_at', '<', $end->utc()->toDateTimeString())
+            ->where('s.ends_at', '>', $start->utc()->toDateTimeString())
+            ->select('s.*', 'u.name as employee_name', 'u.employee_code', 'b.name as branch_name')
+            ->orderBy('s.starts_at')->get();
+
+        $pdf = Pdf::loadView('rota.export', compact('shifts', 'start', 'end', 'periodLabel', 'timezone'))
+            ->setPaper('a4', 'landscape');
+
+        return $pdf->download('mentoclock-rota-'.$period.'-'.$suffix.'.pdf');
     }
 
     public function store(Request $request)

@@ -9,3 +9,13 @@ document.querySelectorAll('[data-password-toggle]').forEach(button=>button.addEv
  input.type=visible?'text':'password';button.setAttribute('aria-pressed',String(visible));button.setAttribute('aria-label',visible?'Hide password':'Show password');
 }));
 document.querySelectorAll('[data-confirm]').forEach(form=>form.addEventListener('submit',event=>{if(!confirm(form.dataset.confirm))event.preventDefault();}));
+document.querySelectorAll('[data-change-save]').forEach(form=>{
+ const button=form.querySelector('[data-change-save-button]');
+ const controls=[...form.querySelectorAll('select,input:not([type=hidden]),textarea')];
+ const initial=controls.map(control=>control.value);
+ const update=()=>{button.disabled=controls.every((control,index)=>control.value===initial[index]);};
+ controls.forEach(control=>control.addEventListener('input',update));
+ controls.forEach(control=>control.addEventListener('change',update));
+ form.addEventListener('submit',()=>{button.disabled=true;});
+ update();
+});

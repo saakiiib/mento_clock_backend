@@ -41,9 +41,9 @@
         <td><span class="badge {{$task->status==='complete'?'success':($task->status==='blocked'?'inactive':'warning')}}">{{str_replace('_',' ',$task->status)}}</span></td>
         <td>
             @if($canManageTask)
-                <form id="task-action-{{$task->id}}" method="post" action="{{url('/lifecycle/tasks/'.$task->id)}}" class="inline-form">@csrf
+                <form id="task-action-{{$task->id}}" method="post" action="{{url('/lifecycle/tasks/'.$task->id)}}" class="inline-form" data-change-save>@csrf
                     <select name="status" aria-label="Task status"><option value="pending" @selected($task->status==='pending')>Pending</option><option value="in_progress" @selected($task->status==='in_progress')>In progress</option><option value="blocked" @selected($task->status==='blocked')>Blocked</option><option value="complete" @selected($task->status==='complete')>Complete</option></select>
-                    <input name="notes" value="{{$task->notes}}" placeholder="Optional note" aria-label="Task note"><button class="secondary">Save</button>
+                    <input name="notes" value="{{$task->notes}}" placeholder="Optional note" aria-label="Task note"><button class="secondary" type="submit" data-change-save-button disabled>Save</button>
                 </form>
             @elseif($task->notes){{$task->notes}}@else —@endif
         </td>

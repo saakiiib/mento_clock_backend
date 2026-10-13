@@ -381,12 +381,54 @@ class LeaveController
         $businessId = (int) $user->business_id;
         $balance = $this->leave->balance($businessId, (int) $user->id, CarbonImmutable::now($this->timezone($businessId)));
         $policy = $this->leave->policy($businessId);
+        $employeeProfile = DB::table('employee_leave_profiles')->where('business_id', $businessId)->where('user_id', $user->id)->first();
+        $workingDays = $employeeProfile && $employeeProfile->working_days
+            ? json_decode($employeeProfile->working_days, true) : ['mon', 'tue', 'wed', 'thu', 'fri'];
         $holidays = DB::table('business_holidays')->where('business_id', $businessId)
             ->whereBetween('holiday_date', [$balance['year_start'], $balance['year_end']])
-            ->whereIn('region', ['all', 'local', $policy->holiday_region])->orderBy('holiday_date')->get(['name', 'holiday_date', 'region']);
+            ->whereIn('region', ['all', 'local', $policy->holiday_region])->orderBy('holiday_date')->get(['name', 'holiday_date', 'region', 'is_closure']);
         $requests = DB::table('leave_requests')->where('business_id', $businessId)->where('user_id', $user->id)
             ->orderByDesc('start_date')->limit(100)->get();
-        return response()->json(['balance' => $balance, 'requests' => $requests, 'holidays' => $holidays]);
+        return response()->json([
+            'balance' => $balance, 'requests' => $requests, 'holidays' => $holidays,
+            'working_days' => is_array($workingDays) ? array_values($workingDays) : ['mon', 'tue', 'wed', 'thu', 'fri'],
+            'holiday_region' => $policy->holiday_region, 'leave_types' => LeaveManagement::TYPES,
+        ]);
+    }
+
+    public function preview(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user?->role === 'employee' && $user->active, 403);
+        $businessId = (int) $user->business_id;
+        $values = $request->validate([
+            'leave_type' => ['required', Rule::in(LeaveManagement::TYPES)],
+            'start_date' => 'required|date_format:Y-m-d',
+            'end_date' => 'required|date_format:Y-m-d|after_or_equal:start_date',
+        ]);
+        $start = $this->date($values['start_date'], $businessId);
+        $end = $this->date($values['end_date'], $businessId);
+        if ($start->diffInDays($end) > 365) throw ValidationException::withMessages(['end_date' => 'A request cannot be longer than one year.']);
+        $this->leave->assertWithinLeaveYear($businessId, $start, $end);
+        $count = $this->leave->countWorkingDays($businessId, (int) $user->id, $start, $end);
+        if ($count['days'] <= 0) throw ValidationException::withMessages(['start_date' => 'The selected dates contain no working days for you.']);
+        $this->leave->assertNoOverlap($businessId, (int) $user->id, $start, $end);
+        $this->rota->assertLeaveCanBeApproved($businessId, (int) $user->id, $start, $end);
+
+        $balance = $this->leave->balance($businessId, (int) $user->id, $start);
+        if ($values['leave_type'] === 'annual') {
+            if ($balance['entitlement'] <= 0) throw ValidationException::withMessages(['leave_type' => 'Your annual leave entitlement has not been configured. Please contact your administrator.']);
+            if ($count['days'] > $balance['remaining']) throw ValidationException::withMessages(['end_date' => 'This request is longer than your remaining annual leave balance.']);
+        }
+
+        return response()->json([
+            'eligible' => true, 'working_days_requested' => $count['days'],
+            'charge_to_annual_allowance' => $values['leave_type'] === 'annual',
+            'balance' => $balance,
+            'remaining_after_request' => $values['leave_type'] === 'annual'
+                ? max(0, $balance['remaining'] - $count['days']) : $balance['remaining'],
+            'charged_dates' => $count['dates'],
+        ]);
     }
 
     public function submit(Request $request)
@@ -423,7 +465,8 @@ class LeaveController
             ]);
             DB::table('leave_request_events')->insert([
                 'business_id' => $businessId, 'leave_request_id' => $id, 'actor_id' => $user->id,
-                'action' => 'submitted', 'from_status' => null, 'to_status' => 'pending', 'created_at' => now('UTC'),
+                'action' => 'submitted', 'from_status' => null, 'to_status' => 'pending',
+                'note' => $values['reason'] ?? null, 'created_at' => now('UTC'),
             ]);
         });
 

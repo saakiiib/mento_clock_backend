@@ -62,5 +62,13 @@ class EmployeeHrProfileTest extends TestCase
         $this->assertDatabaseHas('employee_branches', [
             'business_id' => $businessId, 'user_id' => $employee->id, 'branch_id' => $branchId,
         ]);
+
+        $this->actingAs($admin, 'web')->post('/employees', [
+            'first_name' => 'Sam', 'last_name' => 'Taylor',
+            'email' => 'sam.taylor@example.test', 'password' => 'Clock123',
+            'phone' => '+447700900003', 'document_category' => '', 'document_title' => '',
+        ])->assertRedirect('/people')->assertSessionHas('status');
+        $unassigned = User::where('email', 'sam.taylor@example.test')->firstOrFail();
+        $this->assertDatabaseMissing('employee_branches', ['user_id' => $unassigned->id]);
     }
 }

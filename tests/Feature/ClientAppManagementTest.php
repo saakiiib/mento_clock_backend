@@ -30,6 +30,9 @@ class ClientAppManagementTest extends TestCase
         $this->actingAs($admin,'sanctum')->getJson('/api/manager/dashboard')->assertOk()->assertJsonPath('business','Client A');
         $this->getJson('/api/manager/employees')->assertOk()->assertJsonCount(1,'data');
         $this->postJson('/api/manager/employees',['name'=>'New Worker','email'=>'new-worker@example.test','password'=>'secure-test-456','branches'=>[$branch]])->assertCreated();
+        $this->postJson('/api/manager/employees',['name'=>'Unassigned Worker','email'=>'unassigned-worker@example.test','password'=>'Clock123'])->assertCreated();
+        $unassigned = User::where('email','unassigned-worker@example.test')->firstOrFail();
+        $this->assertDatabaseMissing('employee_branches',['user_id'=>$unassigned->id]);
         $this->postJson('/api/manager/employees',['name'=>'Foreign Worker','email'=>'foreign-worker@example.test','password'=>'secure-test-456','branches'=>[$foreignBranch]])->assertUnprocessable();
         $this->getJson('/api/manager/branches')->assertOk()->assertJsonCount(1,'data');
         $this->actingAs($employee,'sanctum')->getJson('/api/manager/dashboard')->assertForbidden();

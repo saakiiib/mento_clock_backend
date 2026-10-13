@@ -73,14 +73,15 @@ class ClientApiController
         $v = $request->validate([
             'name' => 'required|string|max:100', 'email' => 'required|email|max:255|unique:users,email|unique:platform_admins,email',
             'password' => 'required|string|min:8|max:100', 'phone' => 'nullable|string|max:40',
-            'employee_code' => 'nullable|string|max:40', 'branches' => 'required|array|min:1',
+            'employee_code' => 'nullable|string|max:40', 'branches' => 'nullable|array',
             'job_title' => 'nullable|string|max:100', 'employment_start_date' => 'nullable|date_format:Y-m-d',
             'emergency_contact_name' => 'nullable|string|max:100', 'emergency_contact_phone' => 'nullable|string|max:40',
             'branches.*' => $this->branchRules($businessId),
         ]);
-        $employee = DB::transaction(function () use ($businessId, $v) {
+        $branchIds = array_values(array_unique($v['branches'] ?? []));
+        $employee = DB::transaction(function () use ($businessId, $v, $branchIds) {
             DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
-            $this->capacity->ensureEmployeeAssignments($businessId, $v['branches']);
+            $this->capacity->ensureEmployeeAssignments($businessId, $branchIds);
             $employee = User::create([
                 'business_id' => $businessId, 'name' => $v['name'], 'email' => $v['email'],
                 'password' => $v['password'], 'phone' => $v['phone'] ?? null,
@@ -90,7 +91,7 @@ class ClientApiController
                 'emergency_contact_phone' => $v['emergency_contact_phone'] ?? null,
                 'role' => 'employee', 'active' => true,
             ]);
-            foreach (array_unique($v['branches']) as $branchId) {
+            foreach ($branchIds as $branchId) {
                 DB::table('employee_branches')->insert(['business_id' => $businessId, 'user_id' => $employee->id, 'branch_id' => $branchId]);
             }
             return $employee;
@@ -106,20 +107,21 @@ class ClientApiController
             'name' => 'required|string|max:100',
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($employee->id), Rule::unique('platform_admins', 'email')],
             'password' => 'nullable|string|min:8|max:100', 'phone' => 'nullable|string|max:40',
-            'employee_code' => 'nullable|string|max:40', 'branches' => 'required|array|min:1',
+            'employee_code' => 'nullable|string|max:40', 'branches' => 'nullable|array',
             'job_title' => 'nullable|string|max:100', 'employment_start_date' => 'nullable|date_format:Y-m-d',
             'emergency_contact_name' => 'nullable|string|max:100', 'emergency_contact_phone' => 'nullable|string|max:40',
             'branches.*' => $this->branchRules($businessId),
         ]);
-        DB::transaction(function () use ($businessId, $employee, $v, $id) {
+        $branchIds = array_values(array_unique($v['branches'] ?? []));
+        DB::transaction(function () use ($businessId, $employee, $v, $id, $branchIds) {
             DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
             $current = User::where('business_id', $businessId)->where('id', $id)->lockForUpdate()->firstOrFail();
-            if ($current->active) $this->capacity->ensureEmployeeAssignments($businessId, $v['branches'], $current->id);
+            if ($current->active) $this->capacity->ensureEmployeeAssignments($businessId, $branchIds, $current->id);
             $current->update(collect($v)->except(['branches', 'password'])->all());
             if (!empty($v['password'])) $current->update(['password' => $v['password']]);
             $current->tokens()->delete();
             DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
-            foreach (array_unique($v['branches']) as $branchId) {
+            foreach ($branchIds as $branchId) {
                 DB::table('employee_branches')->insert(['business_id' => $businessId, 'user_id' => $current->id, 'branch_id' => $branchId]);
             }
         });

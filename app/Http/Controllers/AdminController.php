@@ -123,8 +123,8 @@ class AdminController {
    'reporting_authority_id'=>['nullable','integer',$authority],
    'leave_sanction_authority_id'=>['nullable','integer',$authority],
    'employee_document'=>['nullable','file','mimes:pdf,jpg,jpeg,png,doc,docx','max:15360'],
-   'document_category'=>['required_with:employee_document',Rule::in(['right_to_work','passport','visa_brp','cos','contract','qualification','insurance','other'])],
-   'document_title'=>'required_with:employee_document|string|max:160',
+   'document_category'=>['nullable',Rule::requiredIf(fn()=>request()->hasFile('employee_document')),Rule::in(['right_to_work','passport','visa_brp','cos','contract','qualification','insurance','other'])],
+   'document_title'=>['nullable','string','max:160',Rule::requiredIf(fn()=>request()->hasFile('employee_document'))],
    'document_expiry_date'=>'nullable|date',
    'document_notes'=>'nullable|string|max:2000',
   ];
@@ -206,15 +206,15 @@ class AdminController {
  public function employee(Request $r){
   $id=$this->business($r);$rules=$this->employeeProfileRules($id);
   $rules['email']=['required','email','max:255','unique:users,email','unique:platform_admins,email'];
-  $rules['password']='required|string|min:12|max:72';
-  $rules['branches']='required|array|min:1';$rules['branches.*']=['required','integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)];
+  $rules['password']='required|string|min:8|max:72';
+  $rules['branches']='nullable|array';$rules['branches.*']=['integer',Rule::exists('branches','id')->where('business_id',$id)->where('active',true)];
   $v=$this->validateEmployeeForm($r,$rules);if($v instanceof \Illuminate\Http\RedirectResponse)return $v;$payload=$this->employeeProfilePayload($v);
   if(!empty($v['employee_document']))$this->requireEmployeeDocumentUploadAccess($r,$id);
-  $document=$v['employee_document']??null;$documentPath=null;
-  try{DB::transaction(function()use($id,$v,$payload,$r,$document,&$documentPath){
-   DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$v['branches']);
+  $document=$v['employee_document']??null;$documentPath=null;$branchIds=array_values(array_unique($v['branches']??[]));
+  try{DB::transaction(function()use($id,$v,$payload,$r,$document,$branchIds,&$documentPath){
+   DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$branchIds);
    $u=User::create([...$payload,'password'=>$v['password'],'business_id'=>$id,'role'=>'employee','active'=>true]);
-   foreach(array_unique($v['branches']) as $b)DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);
+   foreach($branchIds as $b)DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);
    if($document){$documentPath=$document->store("employee-documents/{$id}/{$u->id}",'local');$this->saveEmployeeDocument($r,$id,(int)$u->id,$v,$document,$documentPath);}
    if(app(\App\Services\ModuleAccess::class)->enabled($id,'employee_lifecycle'))$this->lifecycle->open($id,(int)$u->id,'onboarding',$v['employment_start_date']??null,(int)$r->user()->id);
   });}catch(\Throwable $exception){if($documentPath)Storage::disk('local')->delete($documentPath);throw $exception;}
@@ -227,17 +227,17 @@ class AdminController {
  public function updateEmployee(Request $r,$id){
   $business=$this->business($r);$employee=User::where('business_id',$business)->where('role','employee')->findOrFail($id);
   $rules=$this->employeeProfileRules($business);$rules['email']=['required','email','max:255',Rule::unique('users','email')->ignore($employee->id),Rule::unique('platform_admins','email')];
-  $rules['password']='nullable|string|min:12|max:72';$rules['branches']='required|array|min:1';$rules['branches.*']=['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)];
+  $rules['password']='nullable|string|min:8|max:72';$rules['branches']='nullable|array';$rules['branches.*']=['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)];
   $v=$this->validateEmployeeForm($r,$rules);if($v instanceof \Illuminate\Http\RedirectResponse)return $v;abort_if((int)($v['reporting_authority_id']??0)===$employee->id||(int)($v['leave_sanction_authority_id']??0)===$employee->id,422,'An employee cannot be their own authority.');
   if(!empty($v['employee_document']))$this->requireEmployeeDocumentUploadAccess($r,$business);
   $payload=$this->employeeProfilePayload($v);
-  $document=$v['employee_document']??null;$documentPath=$document?->store("employee-documents/{$business}/{$employee->id}",'local');
-  try{DB::transaction(function()use($employee,$business,$v,$payload,$r,$document,$documentPath){
+  $document=$v['employee_document']??null;$documentPath=$document?->store("employee-documents/{$business}/{$employee->id}",'local');$branchIds=array_values(array_unique($v['branches']??[]));
+  try{DB::transaction(function()use($employee,$business,$v,$payload,$r,$document,$documentPath,$branchIds){
    DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$employee->id)->lockForUpdate()->firstOrFail();
-   if($current->active)$this->capacity->ensureEmployeeAssignments($business,$v['branches'],$current->id);
+   if($current->active)$this->capacity->ensureEmployeeAssignments($business,$branchIds,$current->id);
    $current->update($payload);if(!empty($v['password']))$current->update(['password'=>$v['password']]);$current->tokens()->delete();
    DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();
-   foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);
+   foreach($branchIds as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);
    if($document)$this->saveEmployeeDocument($r,$business,(int)$current->id,$v,$document,$documentPath);
   });}catch(\Throwable $exception){if($documentPath)Storage::disk('local')->delete($documentPath);throw $exception;}
   return redirect('/people')->with('status','Employee profile updated. They should sign in again.'.($document?' Employee document uploaded for review.':''));

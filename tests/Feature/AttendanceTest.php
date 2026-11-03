@@ -23,9 +23,9 @@ class AttendanceTest extends TestCase {
   $this->postJson('/api/attendance/clock-in',$this->gps($branch))->assertConflict();$this->assertDatabaseCount('attendance_records',1);
   $id=DB::table('attendance_records')->value('id');$this->postJson('/api/attendance/'.$id.'/clock-out',$this->gps($branch))->assertOk();$first=DB::table('attendance_records')->value('clock_out');$this->travel(5)->minutes();$this->postJson('/api/attendance/'.$id.'/clock-out',$this->gps($branch))->assertOk();$this->assertSame($first,DB::table('attendance_records')->value('clock_out'));
  }
- public function test_location_outside_geofence_is_rejected(): void {
-  [$u,$b]=$this->account('a');$v=$this->gps($b);$v['latitude']=53;$this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$v)->assertUnprocessable();$this->assertDatabaseCount('attendance_records',0);
- }
+   public function test_location_outside_geofence_still_clocks_in(): void {
+   [$u,$b]=$this->account('a');$v=$this->gps($b);$v['latitude']=53;$v['confirm_off_rota']=true;$this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$v)->assertCreated()->assertJsonPath('outside',true);$this->assertDatabaseCount('attendance_records',1);
+  }
  public function test_history_and_clock_out_are_tenant_scoped(): void {
   [$a,$ba]=$this->account('a');[$b,$bb]=$this->account('b');$this->actingAs($a,'sanctum')->postJson('/api/attendance/clock-in',$this->gps($ba))->assertCreated();$id=DB::table('attendance_records')->value('id');
   $this->actingAs($b,'sanctum')->getJson('/api/attendance')->assertJsonCount(0,'data');$this->postJson('/api/attendance/'.$id.'/clock-out',$this->gps($bb))->assertNotFound();

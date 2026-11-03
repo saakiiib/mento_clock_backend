@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Log;
 class ClockController {
  public function login(Request $r) {
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
@@ -15,6 +16,7 @@ class ClockController {
   $b=DB::table('businesses')->where('id',$u->business_id)->where('active',true)->first();abort_unless($b,403,'Business is inactive.');
   $abilities = $u->role === 'admin' ? ['*'] : ['attendance'];
   $token=$u->createToken('mentoclock-mobile',$abilities,now()->addDays(30))->plainTextToken;
+  Log::info('User logged in', ['user_id' => $u->id, 'business_id' => $u->business_id, 'email' => $u->email, 'ip' => $r->ip()]);
   return response()->json(['token'=>$token,'user'=>$this->account($u)]);
  }
  private function account(User $u): array {
@@ -65,20 +67,23 @@ class ClockController {
   $r->user()->fill($v)->save();
   return response()->json(['message'=>'Profile updated.','user'=>$this->account($r->user()->fresh())]);
  }
- public function logout(Request $r){$r->user()->currentAccessToken()?->delete();return response()->json(['message'=>'Signed out.']);}
+ public function logout(Request $r){$u=$r->user();$u?->currentAccessToken()?->delete();Log::info('User logged out', ['user_id' => $u?->id, 'business_id' => $u?->business_id, 'ip' => $r->ip()]);return response()->json(['message'=>'Signed out.']);}
  public function history(Request $r){
   $rows=DB::table('attendance_records')->where('business_id',$r->user()->business_id)->where('user_id',$r->user()->id)->where(function($q){$q->where('clock_in','>=',now('UTC')->subDays(93))->orWhereNull('clock_out');})->orderByDesc('clock_in')->get();
   return response()->json(['data'=>$rows->map(function($a){$b=DB::table('branches')->where('id',$a->branch_id)->where('business_id',$a->business_id)->first();return ['id'=>(string)$a->id,'branch'=>['id'=>$b->id,'name'=>$b->name,'address'=>$b->address],'clock_in'=>Carbon::parse($a->clock_in,'UTC')->toIso8601String(),'clock_out'=>$a->clock_out ? Carbon::parse($a->clock_out,'UTC')->toIso8601String():null];})]);
  }
  private function location(Request $r,$branch): array {
-  $v=$r->validate(['latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','accuracy_m'=>'required|numeric|min:0|max:50','captured_at'=>'required|date']);
-  abort_if(abs(now('UTC')->timestamp-Carbon::parse($v['captured_at'])->timestamp)>120,422,'Location is stale. Please try again.');
-  $lat1=deg2rad((float)$branch->latitude);$lat2=deg2rad((float)$v['latitude']);$dl=$lat2-$lat1;$dn=deg2rad((float)$v['longitude']-(float)$branch->longitude);
-  $a=sin($dl/2)**2+cos($lat1)*cos($lat2)*sin($dn/2)**2;$distance=6371000*2*atan2(sqrt($a),sqrt(max(0,1-$a)));
-  abort_if($distance+(float)$v['accuracy_m']>$branch->radius_m,422,'Your location could not be verified inside this workplace. Move closer or ask your manager.');return $v;
+  $v=$r->validate(['latitude'=>'nullable|numeric|between:-90,90','longitude'=>'nullable|numeric|between:-180,180','accuracy_m'=>'nullable|numeric|min:0|max:50','captured_at'=>'nullable|date']);
+  $hasLocation = isset($v['latitude']) && isset($v['longitude']) && $v['latitude'] !== null && $v['longitude'] !== null;
+  $outside = false;
+  if ($hasLocation && isset($branch->latitude,$branch->longitude,$branch->radius_m)) {
+   $lat1=deg2rad((float)$branch->latitude);$lat2=deg2rad((float)$v['latitude']);$dl=$lat2-$lat1;$dn=deg2rad((float)$v['longitude']-(float)$branch->longitude);
+   $a=sin($dl/2)**2+cos($lat1)*cos($lat2)*sin($dn/2)**2;$distance=6371000*2*atan2(sqrt($a),sqrt(max(0,1-$a)));
+   $outside = ($distance + (float)($v['accuracy_m'] ?? 0)) > (float)$branch->radius_m;
+  }
+  return ['latitude' => $hasLocation ? $v['latitude'] : null, 'longitude' => $hasLocation ? $v['longitude'] : null, 'accuracy_m' => $v['accuracy_m'] ?? null, 'captured_at' => $v['captured_at'] ?? null, 'outside' => $outside];
  }
  private function isOnPublishedRota(User $user, object $branch, Carbon $now): bool {
-  // Allow clock-in up to 30 minutes before a shift and up to 60 minutes after it ends.
   return DB::table('rota_shifts')->where('business_id',$user->business_id)->where('user_id',$user->id)
    ->where('status','published')->where(function($query)use($branch){
     $query->whereNull('branch_id')->orWhere('branch_id',$branch->id);
@@ -102,7 +107,9 @@ class ClockController {
     ],409);
    }
    $v=$this->location($r,$branch);
-   $id=DB::table('attendance_records')->insertGetId(['business_id'=>$u->business_id,'user_id'=>$u->id,'branch_id'=>$branch->id,'clock_in'=>$utcNow,'in_lat'=>$v['latitude'],'in_lng'=>$v['longitude'],'created_at'=>$utcNow,'updated_at'=>$utcNow]);
+   $lat = $v['latitude'] === null ? 0 : $v['latitude'];
+   $lng = $v['longitude'] === null ? 0 : $v['longitude'];
+   $id=DB::table('attendance_records')->insertGetId(['business_id'=>$u->business_id,'user_id'=>$u->id,'branch_id'=>$branch->id,'clock_in'=>$utcNow,'in_lat'=>$lat,'in_lng'=>$lng,'created_at'=>$utcNow,'updated_at'=>$utcNow]);
    if($offRota){
     DB::table('audit_logs')->insert([
      'business_id'=>$u->business_id,'actor_id'=>$u->id,'attendance_id'=>$id,
@@ -112,7 +119,9 @@ class ClockController {
      'created_at'=>$utcNow,
     ]);
    }
-   return response()->json(['id'=>$id,'message'=>'Clocked in.','off_rota'=>$offRota],201);
+   $message = $v['outside'] ? 'Clocked in. You are outside this workplace, but your attendance is still recorded.' : 'Clocked in.';
+   Log::info('User clocked in', ['user_id' => $u->id, 'business_id' => $u->business_id, 'branch_id' => $branch->id, 'attendance_id' => $id, 'outside' => $v['outside'], 'ip' => $r->ip()]);
+   return response()->json(['id'=>$id,'message'=>$message,'off_rota'=>$offRota,'outside'=>$v['outside']],201);
   });
  }
  public function clockOut(Request $r,$id){
@@ -121,7 +130,12 @@ class ClockController {
    $a=DB::table('attendance_records')->where('id',$id)->where('business_id',$u->business_id)->where('user_id',$u->id)->lockForUpdate()->first();abort_unless($a,404);
    if($a->clock_out)return response()->json(['message'=>'Already clocked out.']);
    $branch=DB::table('branches')->where('id',$a->branch_id)->where('business_id',$u->business_id)->first();$v=$this->location($r,$branch);
-   $utcNow=Carbon::now('UTC');DB::table('attendance_records')->where('id',$a->id)->update(['clock_out'=>$utcNow,'out_lat'=>$v['latitude'],'out_lng'=>$v['longitude'],'updated_at'=>$utcNow]);return response()->json(['message'=>'Clocked out.']);
+   $lat = $v['latitude'] === null ? 0 : $v['latitude'];
+   $lng = $v['longitude'] === null ? 0 : $v['longitude'];
+   $utcNow=Carbon::now('UTC');DB::table('attendance_records')->where('id',$a->id)->update(['clock_out'=>$utcNow,'out_lat'=>$lat,'out_lng'=>$lng,'updated_at'=>$utcNow]);
+   $message = $v['outside'] ? 'Clocked out. You were outside this workplace, but your attendance is still recorded.' : 'Clocked out.';
+   Log::info('User clocked out', ['user_id' => $u->id, 'business_id' => $u->business_id, 'branch_id' => $a->branch_id, 'attendance_id' => $a->id, 'outside' => $v['outside'], 'ip' => $r->ip()]);
+   return response()->json(['message'=>$message,'outside'=>$v['outside']]);
   });
  }
 }

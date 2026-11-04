@@ -85,4 +85,16 @@ class ClientAppManagementTest extends TestCase
         $this->postJson('/api/auth/login',['email'=>$worker->email,'password'=>'test-password-123'])
             ->assertOk()->assertJsonPath('user.job_title','Shift Lead')->assertJsonPath('user.emergency_contact_name','Alex Worker');
     }
+
+    public function test_manager_can_clear_a_workplace_address_to_make_location_optional(): void
+    {
+        [$admin, $branch] = $this->account('Client A', 'admin');
+
+        $this->actingAs($admin, 'sanctum')->putJson('/api/manager/branches/'.$branch, [
+            'name' => 'Branch Client A', 'address' => '', 'latitude' => null, 'longitude' => null, 'radius_m' => 100,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('branches', ['id' => $branch, 'address' => null, 'latitude' => null, 'longitude' => null]);
+        $this->getJson('/api/manager/branches')->assertOk()->assertJsonPath('data.0.location_required', false);
+    }
 }

@@ -200,7 +200,8 @@ class AdminController {
   return view('employees.create',[...$form,'employee'=>null,'assigned'=>[]]);
  }
  public function branch(Request $r){
-  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000']);
+  $id=$this->business($r);$v=$r->validate(['name'=>'required|string|max:100','address'=>'nullable|string|max:255','latitude'=>'nullable|required_with:longitude|numeric|between:-90,90','longitude'=>'nullable|required_with:latitude|numeric|between:-180,180','radius_m'=>'nullable|integer|min:50|max:1000']);
+  $v['address']=filled($v['address']??null)?trim($v['address']):null;$v['radius_m']=$v['radius_m']??100;
   DB::transaction(function()use($id,$v){DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureBranchSlot($id);DB::table('branches')->insert([...$v,'business_id'=>$id,'active'=>true,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);});return back()->with('status','Branch created.');
  }
  public function employee(Request $r){
@@ -245,7 +246,7 @@ class AdminController {
  public function editBranch(Request $r,$id){$business=$this->business($r);return view('branches.edit',['branch'=>DB::table('branches')->where('business_id',$business)->where('id',$id)->firstOrFail()]);}
  public function updateBranch(Request $r,$id){
   $business=$this->business($r);$branch=DB::table('branches')->where('business_id',$business)->where('id',$id)->firstOrFail();
-  $v=$r->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000']);DB::table('branches')->where('id',$branch->id)->update([...$v,'updated_at'=>now()]);return redirect('/')->with('status','Workplace updated.');
+  $v=$r->validate(['name'=>'required|string|max:100','address'=>'nullable|string|max:255','latitude'=>'nullable|required_with:longitude|numeric|between:-90,90','longitude'=>'nullable|required_with:latitude|numeric|between:-180,180','radius_m'=>'nullable|integer|min:50|max:1000']);if(array_key_exists('address',$v))$v['address']=filled($v['address'])?trim($v['address']):null;if(array_key_exists('radius_m',$v)&&$v['radius_m']===null)$v['radius_m']=100;DB::table('branches')->where('id',$branch->id)->update([...$v,'updated_at'=>now()]);return redirect('/')->with('status','Workplace updated.');
  }
  public function assignments(Request $r,$id){
   $business=$this->business($r);$u=User::where('business_id',$business)->findOrFail($id);

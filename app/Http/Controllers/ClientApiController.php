@@ -149,9 +149,11 @@ class ClientApiController
         $businessId = $this->businessId($request);
         $rows = DB::table('branches')->where('business_id', $businessId)->orderBy('name')->get();
         return response()->json(['data' => $rows->map(fn($b) => [
-            'id' => $b->id, 'name' => $b->name, 'address' => $b->address,
-            'latitude' => (float) $b->latitude, 'longitude' => (float) $b->longitude,
+            'id' => $b->id, 'name' => $b->name, 'address' => $b->address ?? '',
+            'latitude' => $b->latitude === null ? null : (float) $b->latitude,
+            'longitude' => $b->longitude === null ? null : (float) $b->longitude,
             'radius_m' => (int) $b->radius_m, 'active' => (bool) $b->active,
+            'location_required' => filled($b->address ?? null),
             'employee_count' => $this->capacity->activeEmployeeCount($businessId, (int) $b->id),
             'employee_limit' => $this->capacity->employeeLimit($businessId, (int) $b->id),
         ])->values()]);
@@ -160,7 +162,9 @@ class ClientApiController
     public function storeBranch(Request $request)
     {
         $businessId = $this->businessId($request);
-        $v = $request->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000']);
+        $v = $request->validate(['name'=>'required|string|max:100','address'=>'nullable|string|max:255','latitude'=>'nullable|required_with:longitude|numeric|between:-90,90','longitude'=>'nullable|required_with:latitude|numeric|between:-180,180','radius_m'=>'nullable|integer|min:50|max:1000']);
+        $v['address'] = filled($v['address'] ?? null) ? trim($v['address']) : null;
+        $v['radius_m'] = $v['radius_m'] ?? 100;
         $id = DB::transaction(function () use ($businessId, $v) {
             DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
             $this->capacity->ensureBranchSlot($businessId);
@@ -174,7 +178,9 @@ class ClientApiController
         $businessId = $this->businessId($request);
         $branch = DB::table('branches')->where('business_id', $businessId)->where('id', $id)->first();
         abort_unless($branch, 404);
-        $v = $request->validate(['name'=>'required|string|max:100','address'=>'required|string|max:255','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','radius_m'=>'required|integer|min:50|max:1000','active'=>'sometimes|boolean']);
+        $v = $request->validate(['name'=>'required|string|max:100','address'=>'nullable|string|max:255','latitude'=>'nullable|required_with:longitude|numeric|between:-90,90','longitude'=>'nullable|required_with:latitude|numeric|between:-180,180','radius_m'=>'nullable|integer|min:50|max:1000','active'=>'sometimes|boolean']);
+        if (array_key_exists('address', $v)) $v['address'] = filled($v['address']) ? trim($v['address']) : null;
+        if (array_key_exists('radius_m', $v) && $v['radius_m'] === null) $v['radius_m'] = 100;
         DB::transaction(function () use ($businessId, $id, $branch, $v) {
             DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
             if (array_key_exists('active', $v) && $v['active'] && !$branch->active) $this->capacity->ensureBranchSlot($businessId);

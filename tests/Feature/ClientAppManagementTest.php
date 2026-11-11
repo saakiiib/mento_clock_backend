@@ -14,7 +14,7 @@ class ClientAppManagementTest extends TestCase
     {
         $business = DB::table('businesses')->insertGetId(['name'=>$name,'timezone'=>'Europe/London','active'=>true]);
         foreach (DB::table('modules')->where('available',true)->get(['id']) as $module) DB::table('business_modules')->insert(['business_id'=>$business,'module_id'=>$module->id,'status'=>'active','created_at'=>now(),'updated_at'=>now()]);
-        $branch = DB::table('branches')->insertGetId(['business_id'=>$business,'name'=>'Branch '.$name,'address'=>'Test','latitude'=>52,'longitude'=>-0.7,'radius_m'=>100,'active'=>true]);
+        $branch = DB::table('branches')->insertGetId(['business_id'=>$business,'name'=>'Branch '.$name,'address'=>'Test','latitude'=>52,'longitude'=>-0.7,'location_required'=>true,'radius_m'=>100,'active'=>true]);
         $user = User::create(['business_id'=>$business,'name'=>$name,'email'=>strtolower(str_replace(' ','-',$name)).'@example.test','password'=>'test-password-123','role'=>$role,'active'=>true]);
         if ($role === 'employee') DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$user->id,'branch_id'=>$branch]);
         return [$user, $branch];
@@ -86,15 +86,23 @@ class ClientAppManagementTest extends TestCase
             ->assertOk()->assertJsonPath('user.job_title','Shift Lead')->assertJsonPath('user.emergency_contact_name','Alex Worker');
     }
 
-    public function test_manager_can_clear_a_workplace_address_to_make_location_optional(): void
+    public function test_manager_can_set_gps_requirement_independently_from_address_and_coordinates(): void
     {
         [$admin, $branch] = $this->account('Client A', 'admin');
 
         $this->actingAs($admin, 'sanctum')->putJson('/api/manager/branches/'.$branch, [
-            'name' => 'Branch Client A', 'address' => '', 'latitude' => null, 'longitude' => null, 'radius_m' => 100,
+            'name' => 'Branch Client A', 'address' => '', 'latitude' => null, 'longitude' => null,
+            'radius_m' => 100, 'location_required' => false,
         ])->assertOk();
 
-        $this->assertDatabaseHas('branches', ['id' => $branch, 'address' => null, 'latitude' => null, 'longitude' => null]);
+        $this->assertDatabaseHas('branches', ['id' => $branch, 'address' => null, 'latitude' => null, 'longitude' => null, 'location_required' => false]);
         $this->getJson('/api/manager/branches')->assertOk()->assertJsonPath('data.0.location_required', false);
+
+        $this->putJson('/api/manager/branches/'.$branch, [
+            'name' => 'Branch Client A', 'address' => 'Workplace address', 'latitude' => null,
+            'longitude' => null, 'radius_m' => 100, 'location_required' => true,
+        ])->assertOk();
+        $this->assertDatabaseHas('branches', ['id' => $branch, 'location_required' => true]);
+        $this->getJson('/api/manager/branches')->assertOk()->assertJsonPath('data.0.location_required', true);
     }
 }

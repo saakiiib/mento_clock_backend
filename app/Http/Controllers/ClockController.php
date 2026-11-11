@@ -21,12 +21,12 @@ class ClockController {
  }
  private function account(User $u): array {
   $b=DB::table('businesses')->find($u->business_id);
-  $branches=DB::table('branches')->join('employee_branches','branches.id','=','employee_branches.branch_id')->where('employee_branches.user_id',$u->id)->where('branches.business_id',$u->business_id)->where('branches.active',true)->select('branches.id','branches.name','branches.address','branches.latitude','branches.longitude','branches.radius_m')->get()->map(fn($branch)=>[
+  $branches=DB::table('branches')->join('employee_branches','branches.id','=','employee_branches.branch_id')->where('employee_branches.user_id',$u->id)->where('branches.business_id',$u->business_id)->where('branches.active',true)->select('branches.id','branches.name','branches.address','branches.latitude','branches.longitude','branches.radius_m','branches.location_required')->get()->map(fn($branch)=>[
    'id'=>$branch->id,'name'=>$branch->name,'address'=>$branch->address ?? '',
    'latitude'=>$branch->latitude === null ? null : (float)$branch->latitude,
    'longitude'=>$branch->longitude === null ? null : (float)$branch->longitude,
    'radius_m'=>(int)$branch->radius_m,
-   'location_required'=>filled($branch->address ?? null),
+   'location_required'=>(bool)$branch->location_required,
   ]);
   $modules=app(ModuleAccess::class);
   return [
@@ -76,7 +76,7 @@ class ClockController {
  public function logout(Request $r){$u=$r->user();$u?->currentAccessToken()?->delete();Log::info('User logged out', ['user_id' => $u?->id, 'business_id' => $u?->business_id, 'ip' => $r->ip()]);return response()->json(['message'=>'Signed out.']);}
  public function history(Request $r){
   $rows=DB::table('attendance_records')->where('business_id',$r->user()->business_id)->where('user_id',$r->user()->id)->where(function($q){$q->where('clock_in','>=',now('UTC')->subDays(93))->orWhereNull('clock_out');})->orderByDesc('clock_in')->get();
-  return response()->json(['data'=>$rows->map(function($a){$b=DB::table('branches')->where('id',$a->branch_id)->where('business_id',$a->business_id)->first();return ['id'=>(string)$a->id,'branch'=>['id'=>$b->id,'name'=>$b->name,'address'=>$b->address ?? '','location_required'=>filled($b->address ?? null)],'clock_in'=>Carbon::parse($a->clock_in,'UTC')->toIso8601String(),'clock_out'=>$a->clock_out ? Carbon::parse($a->clock_out,'UTC')->toIso8601String():null];})]);
+  return response()->json(['data'=>$rows->map(function($a){$b=DB::table('branches')->where('id',$a->branch_id)->where('business_id',$a->business_id)->first();return ['id'=>(string)$a->id,'branch'=>['id'=>$b->id,'name'=>$b->name,'address'=>$b->address ?? '','location_required'=>(bool)$b->location_required],'clock_in'=>Carbon::parse($a->clock_in,'UTC')->toIso8601String(),'clock_out'=>$a->clock_out ? Carbon::parse($a->clock_out,'UTC')->toIso8601String():null];})]);
  }
  private function location(Request $r,$branch): array {
   $v=$r->validate(['latitude'=>'nullable|numeric|between:-90,90','longitude'=>'nullable|numeric|between:-180,180','accuracy_m'=>'nullable|numeric|min:0|max:50','captured_at'=>'nullable|date']);
@@ -90,7 +90,7 @@ class ClockController {
   return ['latitude' => $hasLocation ? $v['latitude'] : null, 'longitude' => $hasLocation ? $v['longitude'] : null, 'accuracy_m' => $v['accuracy_m'] ?? null, 'captured_at' => $v['captured_at'] ?? null, 'outside' => $outside];
  }
  private function requiresLocation($branch): bool {
-  return $branch !== null && filled($branch->address ?? null);
+  return $branch !== null && (bool)($branch->location_required ?? false);
  }
  private function ensureLocationIfRequired($branch, array $location): void {
   if ($this->requiresLocation($branch) && $location['latitude'] === null) {
@@ -120,6 +120,7 @@ class ClockController {
     return response()->json([
      'code'=>'off_rota_confirmation_required','requires_confirmation'=>true,
      'message'=>'You are not scheduled to work at this time. Do you still want to clock in?',
+     'branch_name'=>$branch->name,
     ],409);
    }
    $v=$this->location($r,$branch);

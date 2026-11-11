@@ -8,6 +8,7 @@ Route::middleware(['auth:sanctum','active.business'])->group(function(){
  Route::get('attendance',[ClockController::class,'history'])->middleware('module.enabled:attendance_tracking');Route::post('attendance/clock-in',[ClockController::class,'clockIn'])->middleware('module.enabled:attendance_tracking');Route::post('attendance/{id}/clock-out',[ClockController::class,'clockOut'])->whereNumber('id')->middleware('module.enabled:attendance_tracking');
  Route::get('reports',[ReportController::class,'employee'])->middleware('module.enabled:reports_analytics');
  Route::get('leave',[LeaveController::class,'mine'])->middleware('module.enabled:leave_management');
+ Route::post('leave/preview',[LeaveController::class,'preview'])->middleware('module.enabled:leave_management');
  Route::post('leave/requests',[LeaveController::class,'submit'])->middleware('module.enabled:leave_management');
  Route::post('leave/requests/{id}/cancel',[LeaveController::class,'cancelMine'])->whereNumber('id')->middleware('module.enabled:leave_management');
  Route::get('rota',[RotaController::class,'mine'])->middleware('module.enabled:rota_shifts');

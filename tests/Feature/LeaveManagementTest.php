@@ -47,10 +47,21 @@ class LeaveManagementTest extends TestCase
             'region' => 'england_wales', 'created_at' => now(), 'updated_at' => now(),
         ]);
 
-        $this->actingAs($employee, 'sanctum')->postJson('/api/leave/requests', [
+        $leavePayload = [
             'leave_type' => 'annual', 'start_date' => '2027-03-01', 'end_date' => '2027-03-03',
             'reason' => 'Family event',
-        ])->assertCreated();
+        ];
+
+        $this->actingAs($employee, 'sanctum')->postJson('/api/leave/preview', [
+            'leave_type' => $leavePayload['leave_type'],
+            'start_date' => $leavePayload['start_date'],
+            'end_date' => $leavePayload['end_date'],
+        ])->assertOk()
+            ->assertJsonPath('eligible', true)
+            ->assertJsonPath('working_days_requested', 2)
+            ->assertJsonPath('remaining_after_request', 6);
+
+        $this->postJson('/api/leave/requests', $leavePayload)->assertCreated();
 
         $leaveRequest = DB::table('leave_requests')->where('business_id', $businessId)->firstOrFail();
         $this->assertSame('2.00', number_format((float) $leaveRequest->working_days, 2, '.', ''));

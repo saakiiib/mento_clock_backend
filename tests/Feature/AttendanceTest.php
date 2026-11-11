@@ -9,7 +9,7 @@ class AttendanceTest extends TestCase {
  private function account(string $suffix, bool $withAddress = true): array {
   $business=DB::table('businesses')->insertGetId(['name'=>$suffix,'timezone'=>'Europe/London','active'=>true]);
   foreach (DB::table('modules')->where('available',true)->get(['id']) as $module) DB::table('business_modules')->insert(['business_id'=>$business,'module_id'=>$module->id,'status'=>'active','created_at'=>now(),'updated_at'=>now()]);
-  $branch=DB::table('branches')->insertGetId(['business_id'=>$business,'name'=>'Branch '.$suffix,'address'=>$withAddress?'Test only':null,'latitude'=>$withAddress?52:null,'longitude'=>$withAddress?-0.7:null,'radius_m'=>100,'active'=>true]);
+  $branch=DB::table('branches')->insertGetId(['business_id'=>$business,'name'=>'Branch '.$suffix,'address'=>$withAddress?'Test only':null,'latitude'=>$withAddress?52:null,'longitude'=>$withAddress?-0.7:null,'location_required'=>$withAddress,'radius_m'=>100,'active'=>true]);
   $u=User::create(['business_id'=>$business,'name'=>$suffix,'email'=>$suffix.'@example.test','password'=>'test-password-123','role'=>'employee','active'=>true]);
   DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$u->id,'branch_id'=>$branch]);return [$u,$branch];
  }
@@ -23,6 +23,15 @@ class AttendanceTest extends TestCase {
   $this->postJson('/api/attendance/clock-in',$this->gps($branch))->assertConflict();$this->assertDatabaseCount('attendance_records',1);
   $id=DB::table('attendance_records')->value('id');$this->postJson('/api/attendance/'.$id.'/clock-out',$this->gps($branch))->assertOk();$first=DB::table('attendance_records')->value('clock_out');$this->travel(5)->minutes();$this->postJson('/api/attendance/'.$id.'/clock-out',$this->gps($branch))->assertOk();$this->assertSame($first,DB::table('attendance_records')->value('clock_out'));
  }
+ public function test_off_rota_clock_in_names_the_workplace_and_requires_confirmation(): void {
+  [$u,$branch]=$this->account('off-rota');$payload=$this->gps($branch);unset($payload['confirm_off_rota']);
+  $this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$payload)->assertConflict()
+   ->assertJsonPath('code','off_rota_confirmation_required')->assertJsonPath('branch_name','Branch off-rota');
+  $this->assertDatabaseCount('attendance_records',0);
+  $this->postJson('/api/attendance/clock-in',[...$payload,'confirm_off_rota'=>true])->assertCreated()->assertJsonPath('off_rota',true);
+  $attendanceId=DB::table('attendance_records')->value('id');
+  $this->assertDatabaseHas('audit_logs',['attendance_id'=>$attendanceId,'action'=>'clock_in_off_rota']);
+ }
    public function test_location_outside_geofence_still_clocks_in(): void {
    [$u,$b]=$this->account('a');$v=$this->gps($b);$v['latitude']=53;$v['confirm_off_rota']=true;$this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$v)->assertCreated()->assertJsonPath('outside',true);$this->assertDatabaseCount('attendance_records',1);
   }
@@ -35,6 +44,14 @@ class AttendanceTest extends TestCase {
  public function test_clock_in_without_location_is_rejected_when_workplace_has_address(): void {
   [$u,$branch]=$this->account('a');
   $this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',['branch_id'=>$branch,'confirm_off_rota'=>true])->assertUnprocessable()->assertJsonValidationErrors('location');
+  $this->assertDatabaseCount('attendance_records',0);
+ }
+ public function test_location_requirement_can_be_enabled_without_address_or_geofence_coordinates(): void {
+  [$u,$branch]=$this->account('manual-gps',false);
+  DB::table('branches')->where('id',$branch)->update(['location_required'=>true]);
+  $this->actingAs($u,'sanctum')->getJson('/api/me')->assertJsonPath('user.branches.0.location_required',true);
+  $this->postJson('/api/attendance/clock-in',['branch_id'=>$branch,'confirm_off_rota'=>true])
+   ->assertUnprocessable()->assertJsonValidationErrors('location');
   $this->assertDatabaseCount('attendance_records',0);
  }
  public function test_account_marks_location_requirement_per_workplace(): void {

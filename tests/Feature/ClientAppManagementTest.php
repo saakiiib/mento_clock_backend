@@ -105,4 +105,36 @@ class ClientAppManagementTest extends TestCase
         $this->assertDatabaseHas('branches', ['id' => $branch, 'location_required' => true]);
         $this->getJson('/api/manager/branches')->assertOk()->assertJsonPath('data.0.location_required', true);
     }
+
+    public function test_mobile_manager_can_review_own_business_leave_and_read_own_rota(): void
+    {
+        [$admin, $branch] = $this->account('Mobile Manager', 'admin');
+        [$foreignAdmin] = $this->account('Other Mobile Manager', 'admin');
+        $employee = User::create(['business_id'=>$admin->business_id,'name'=>'Team Member','email'=>'mobile-team-member@example.test','password'=>'test-password-123','role'=>'employee','active'=>true]);
+        DB::table('employee_branches')->insert(['business_id'=>$admin->business_id,'user_id'=>$employee->id,'branch_id'=>$branch]);
+        $leaveId = DB::table('leave_requests')->insertGetId([
+            'business_id'=>$admin->business_id,'user_id'=>$employee->id,'leave_type'=>'unpaid',
+            'start_date'=>now()->addDays(30)->toDateString(),'end_date'=>now()->addDays(30)->toDateString(),
+            'working_days'=>1,'reason'=>'Personal appointment','status'=>'pending','created_at'=>now(),'updated_at'=>now(),
+        ]);
+
+        $this->actingAs($admin,'sanctum')->getJson('/api/manager/leave')->assertOk()
+            ->assertJsonCount(1,'data')->assertJsonPath('data.0.employee_name','Team Member');
+        $this->postJson('/api/manager/leave/requests/'.$leaveId.'/review',['decision'=>'approved'])->assertOk()->assertJsonPath('status','approved');
+        $this->assertDatabaseHas('leave_requests',['id'=>$leaveId,'business_id'=>$admin->business_id,'status'=>'approved','reviewed_by'=>$admin->id]);
+
+        $week = now()->addWeeks(2)->startOfWeek();
+        $this->getJson('/api/manager/rota?week='.$week->toDateString())->assertOk()
+            ->assertJsonPath('employees.0.name','Team Member')->assertJsonPath('branches.0.name','Branch Mobile Manager');
+        $created = $this->postJson('/api/manager/rota/shifts',[
+            'user_id'=>$employee->id,'branch_id'=>$branch,'title'=>'Mobile shift',
+            'starts_at'=>$week->toDateString().'T09:00','ends_at'=>$week->toDateString().'T17:00',
+            'break_minutes'=>30,'notes'=>'',
+        ])->assertCreated();
+        $shiftId = $created->json('id');
+        $this->postJson('/api/manager/rota/publish-week',['week'=>$week->toDateString()])->assertOk()->assertJsonPath('published',1);
+        $this->assertDatabaseHas('rota_shifts',['id'=>$shiftId,'business_id'=>$admin->business_id,'status'=>'published']);
+        $this->actingAs($foreignAdmin,'sanctum')->getJson('/api/manager/leave')->assertOk()->assertJsonCount(0,'data');
+        $this->actingAs($foreignAdmin,'sanctum')->postJson('/api/manager/leave/requests/'.$leaveId.'/review',['decision'=>'rejected'])->assertNotFound();
+    }
 }

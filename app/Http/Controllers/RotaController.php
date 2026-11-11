@@ -88,6 +88,31 @@ class RotaController
         return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'shiftGrid', 'weekDays', 'employees', 'branches', 'holidays', 'leave', 'availability', 'templates', 'draftCount'));
     }
 
+    public function managerWeek(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $timezone = $this->timezone($businessId);
+        $week = $request->query('week', CarbonImmutable::now($timezone)->startOfWeek()->toDateString());
+        abort_unless(is_string($week) && preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $week), 422);
+        $start = CarbonImmutable::parse($week, $timezone)->startOfWeek();
+        $end = $start->addWeek();
+        $shifts = DB::table('rota_shifts as s')->join('users as u', function ($join) use ($businessId) {
+            $join->on('u.id', '=', 's.user_id')->where('u.business_id', '=', $businessId);
+        })->leftJoin('branches as b', function ($join) use ($businessId) {
+            $join->on('b.id', '=', 's.branch_id')->where('b.business_id', '=', $businessId);
+        })->where('s.business_id', $businessId)->whereIn('s.status', ['draft','published'])
+            ->where('s.starts_at', '<', $end->utc()->toDateTimeString())->where('s.ends_at', '>', $start->utc()->toDateTimeString())
+            ->orderBy('s.starts_at')->get(['s.id','s.user_id','s.branch_id','s.title','s.starts_at','s.ends_at','s.break_minutes','s.notes','s.status','u.name as employee_name','b.name as branch_name'])
+            ->map(function ($shift) use ($timezone) {
+                $shift->starts_at = CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($timezone)->toIso8601String();
+                $shift->ends_at = CarbonImmutable::parse($shift->ends_at, 'UTC')->setTimezone($timezone)->toIso8601String();
+                return $shift;
+            });
+        $employees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)->orderBy('name')->get(['id','name']);
+        $branches = DB::table('branches')->where('business_id', $businessId)->where('active', true)->orderBy('name')->get(['id','name']);
+        return response()->json(['week_start' => $start->toDateString(), 'timezone' => $timezone, 'shifts' => $shifts, 'employees' => $employees, 'branches' => $branches]);
+    }
+
     public function export(Request $request)
     {
         $businessId = $this->businessId($request);
@@ -183,6 +208,7 @@ class RotaController
             $this->audit($request, $businessId, $id, 'shift_created', null, $values);
             return $id;
         });
+        if ($request->expectsJson()) return response()->json(['message' => 'Shift saved as a draft. Review the week and publish it when ready.', 'id' => $shiftId], 201);
         return back()->with('status', 'Shift saved as a draft. Review the week and publish it when ready.');
     }
 
@@ -327,6 +353,7 @@ class RotaController
             return $drafts->count();
         });
 
+        if ($request->expectsJson()) return response()->json(['message' => $publishedCount.' shifts published. Employees can now see their rota in the app.', 'published' => $publishedCount]);
         return back()->with('status', $publishedCount.' shifts published. Employees can now see their rota in the app.');
     }
 

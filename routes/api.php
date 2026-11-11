@@ -18,7 +18,7 @@ Route::middleware(['auth:sanctum','active.business'])->group(function(){
 
 // Client administrators can manage only records belonging to their own business.
 Route::middleware(['auth:sanctum','active.business','business.admin'])->prefix('manager')->group(function(){
- Route::get('dashboard',[ClientApiController::class,'dashboard'])->middleware('module.enabled:employee_management');
+ Route::get('dashboard',[ClientApiController::class,'dashboard']);
  Route::get('employees',[ClientApiController::class,'employees'])->middleware('module.enabled:employee_management');
  Route::post('employees',[ClientApiController::class,'storeEmployee'])->middleware('module.enabled:employee_management');
  Route::put('employees/{id}',[ClientApiController::class,'updateEmployee'])->whereNumber('id')->middleware('module.enabled:employee_management');
@@ -28,6 +28,11 @@ Route::middleware(['auth:sanctum','active.business','business.admin'])->prefix('
  Route::put('branches/{id}',[ClientApiController::class,'updateBranch'])->whereNumber('id')->middleware('module.enabled:employee_management');
  Route::get('attendance',[ClientApiController::class,'attendance'])->middleware('module.enabled:attendance_tracking');
  Route::post('attendance/{id}/correct',[ClientApiController::class,'correctAttendance'])->middleware('module.enabled:attendance_tracking');
+ Route::get('leave',[LeaveController::class,'managerRequests'])->middleware('module.enabled:leave_management');
+ Route::post('leave/requests/{id}/review',[LeaveController::class,'review'])->whereNumber('id')->middleware('module.enabled:leave_management');
+ Route::get('rota',[RotaController::class,'managerWeek'])->middleware('module.enabled:rota_shifts');
+ Route::post('rota/shifts',[RotaController::class,'store'])->middleware('module.enabled:rota_shifts');
+ Route::post('rota/publish-week',[RotaController::class,'publishWeek'])->middleware('module.enabled:rota_shifts');
  Route::get('reports',[ClientApiController::class,'report'])->middleware('module.enabled:reports_analytics');
  Route::get('reports/download',[ClientApiController::class,'downloadReport'])->middleware('module.enabled:reports_analytics');
  Route::post('reports/email',[ClientApiController::class,'emailReport'])->middleware('module.enabled:reports_analytics');

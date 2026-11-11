@@ -371,7 +371,23 @@ class LeaveController
             ]);
         });
 
+        if ($request->expectsJson()) return response()->json(['message' => 'Leave request '.$values['decision'].'.', 'status' => $values['decision']]);
         return back()->with('status', 'Leave request '.$values['decision'].'.');
+    }
+
+    public function managerRequests(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $status = $request->query('status', 'pending');
+        abort_unless(in_array($status, ['pending', 'approved', 'rejected', 'all'], true), 422);
+        $query = DB::table('leave_requests as l')->join('users as u', function ($join) use ($businessId) {
+            $join->on('u.id', '=', 'l.user_id')->where('u.business_id', '=', $businessId);
+        })->where('l.business_id', $businessId);
+        if ($status !== 'all') $query->where('l.status', $status);
+        $rows = $query->orderByRaw("CASE WHEN l.status = 'pending' THEN 0 ELSE 1 END")
+            ->orderBy('l.start_date')->limit(250)
+            ->get(['l.id','l.leave_type','l.start_date','l.end_date','l.working_days','l.status','l.reason','l.review_note','l.created_at','u.name as employee_name','u.employee_code']);
+        return response()->json(['data' => $rows]);
     }
 
     public function mine(Request $request)

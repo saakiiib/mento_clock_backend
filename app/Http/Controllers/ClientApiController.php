@@ -199,6 +199,7 @@ class ClientApiController
             'date'=>'nullable|date_format:Y-m-d',
             'employee_id'=>['nullable','integer',Rule::exists('users','id')->where('business_id',$businessId)->where('role','employee')],
             'branch_id'=>['nullable','integer',Rule::exists('branches','id')->where('business_id',$businessId)],
+            'deduct_breaks'=>'nullable|boolean',
         ]);
         $date = Carbon::parse($v['date'] ?? Carbon::now($business->timezone)->toDateString(), $business->timezone);
         $start = $date->copy()->startOfDay()->utc();
@@ -215,6 +216,7 @@ class ClientApiController
             'id'=>$a->id,'employee'=>$a->employee,'employee_code'=>$a->employee_code,'branch'=>$a->branch,
             'clock_in'=>Carbon::parse($a->clock_in,'UTC')->tz($business->timezone)->toIso8601String(),
             'clock_out'=>$a->clock_out ? Carbon::parse($a->clock_out,'UTC')->tz($business->timezone)->toIso8601String() : null,
+            'finalized_at'=>$a->finalized_at ? Carbon::parse($a->finalized_at,'UTC')->tz($business->timezone)->toIso8601String() : null,
             'status'=>$a->clock_out ? 'Completed' : 'Active',
         ])]);
     }
@@ -236,25 +238,92 @@ class ClientApiController
             $overlap = DB::table('attendance_records')->where('user_id',$record->user_id)->where('id','!=',$id)->where(fn($q)=>$q->whereNull('clock_out')->orWhere('clock_out','>',$in));
             if ($out) $overlap->where('clock_in','<',$out);
             abort_if($overlap->exists(), 422, 'This time overlaps another attendance record.');
-            $after = ['clock_in'=>$in->toDateTimeString(), 'clock_out'=>$out?->toDateTimeString()];
+            $after = ['clock_in'=>$in->toDateTimeString(), 'clock_out'=>$out?->toDateTimeString(), 'finalized_at'=>null, 'finalized_by'=>null];
             DB::table('attendance_records')->where('business_id',$businessId)->where('id',$id)->update([...$after,'updated_at'=>now()]);
             DB::table('audit_logs')->insert([
                 'business_id'=>$businessId,'actor_id'=>$request->user()->id,'attendance_id'=>$id,
                 'action'=>'corrected','reason'=>$v['reason'],
-                'before'=>json_encode(['clock_in'=>$record->clock_in,'clock_out'=>$record->clock_out]),
+                'before'=>json_encode(['clock_in'=>$record->clock_in,'clock_out'=>$record->clock_out,'finalized_at'=>$record->finalized_at,'finalized_by'=>$record->finalized_by]),
                 'after'=>json_encode($after),'created_at'=>now(),
             ]);
         });
         return response()->json(['message'=>'Attendance corrected and recorded in the audit log.']);
     }
 
+    public function finalizeAttendance(Request $request, int $id)
+    {
+        $businessId = $this->businessId($request);
+        DB::transaction(function () use ($request, $id, $businessId) {
+            $record = DB::table('attendance_records')->where('business_id', $businessId)->where('id', $id)->lockForUpdate()->first();
+            abort_unless($record, 404);
+            abort_if($record->clock_out === null, 422, 'Clock out the employee before finalizing this record.');
+            abort_if($record->finalized_at !== null, 409, 'This attendance record is already finalized.');
+            $now = now('UTC');
+            DB::table('attendance_records')->where('business_id', $businessId)->where('id', $id)->update([
+                'finalized_at' => $now, 'finalized_by' => $request->user()->id, 'updated_at' => $now,
+            ]);
+            DB::table('audit_logs')->insert([
+                'business_id' => $businessId, 'actor_id' => $request->user()->id, 'attendance_id' => $id,
+                'action' => 'finalized', 'reason' => 'Manager reviewed attendance for payroll.',
+                'before' => json_encode(['finalized_at' => null]),
+                'after' => json_encode(['finalized_at' => $now->toDateTimeString(), 'finalized_by' => $request->user()->id]),
+                'created_at' => $now,
+            ]);
+        });
+        return response()->json(['message' => 'Attendance finalized for payroll review.']);
+    }
+
+    public function reportEmployees(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $employees = DB::table('users as u')->leftJoin('employee_leave_profiles as lp', function ($join) use ($businessId) {
+            $join->on('lp.user_id', '=', 'u.id')->where('lp.business_id', '=', $businessId);
+        })->where('u.business_id', $businessId)->where('u.role', 'employee')->where('u.active', true)
+            ->orderBy('u.name')->get(['u.id', 'u.name', 'u.employee_code', 'lp.holiday_hours_per_day']);
+        return response()->json(['data' => $employees]);
+    }
+
+    public function updateReportHolidayHours(Request $request, int $id)
+    {
+        $businessId = $this->businessId($request);
+        $employee = $this->employee($businessId, $id);
+        $values = $request->validate(['holiday_hours_per_day' => 'required|numeric|min:0.25|max:24']);
+        $key = ['business_id' => $businessId, 'user_id' => $employee->id];
+        $before = DB::table('employee_leave_profiles')->where($key)->first();
+        $hours = round((float) $values['holiday_hours_per_day'], 2);
+        DB::transaction(function () use ($request, $businessId, $employee, $key, $before, $hours) {
+            $exists = DB::table('employee_leave_profiles')->where($key)->exists();
+            $profile = [
+                'holiday_hours_per_day' => $hours,
+                'updated_at' => now('UTC'),
+            ];
+            if (!$exists) {
+                $profile['annual_entitlement_override'] = null;
+                $profile['working_days'] = json_encode(['mon', 'tue', 'wed', 'thu', 'fri']);
+                $profile['created_at'] = now('UTC');
+            }
+            DB::table('employee_leave_profiles')->updateOrInsert($key, $profile);
+            DB::table('leave_admin_events')->insert([
+                'business_id' => $businessId, 'actor_id' => $request->user()->id,
+                'subject_type' => 'employee_leave_profile', 'subject_id' => $employee->id,
+                'action' => 'holiday_hours_per_day_updated',
+                'before_data' => $before ? json_encode(['holiday_hours_per_day' => $before->holiday_hours_per_day]) : null,
+                'after_data' => json_encode(['holiday_hours_per_day' => $hours]), 'created_at' => now('UTC'),
+            ]);
+        });
+        return response()->json(['message' => 'Paid annual leave hours per day saved.', 'holiday_hours_per_day' => $hours]);
+    }
+
     private function reportFilters(Request $request, int $businessId): array
     {
         return $request->validate([
-            'period'=>'nullable|in:daily,weekly,monthly',
+            'period'=>'nullable|in:daily,weekly,monthly,custom',
             'date'=>'nullable|date_format:Y-m-d',
+            'start_date'=>['nullable','date_format:Y-m-d',Rule::requiredIf($request->input('period') === 'custom')],
+            'end_date'=>['nullable','date_format:Y-m-d',Rule::requiredIf($request->input('period') === 'custom'),'after_or_equal:start_date'],
             'employee_id'=>['nullable','integer',Rule::exists('users','id')->where('business_id',$businessId)->where('role','employee')],
             'branch_id'=>['nullable','integer',Rule::exists('branches','id')->where('business_id',$businessId)],
+            'deduct_breaks'=>'nullable|boolean',
         ]);
     }
 

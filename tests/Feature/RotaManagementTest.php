@@ -114,6 +114,38 @@ class RotaManagementTest extends TestCase
         $this->assertDatabaseCount('rota_events', 2);
     }
 
+    public function test_mobile_manager_can_revise_future_published_shift_without_overwriting_history(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('mobile-edit');
+        $this->travelTo(CarbonImmutable::parse('2027-02-25 08:00:00', 'Europe/London'));
+        $oldId = DB::table('rota_shifts')->insertGetId([
+            'business_id' => $businessId, 'user_id' => $employee->id, 'title' => 'Day shift',
+            'starts_at' => '2027-03-01 09:00:00', 'ends_at' => '2027-03-01 17:00:00',
+            'break_minutes' => 30, 'status' => 'published', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin, 'sanctum')->putJson('/api/manager/rota/shifts/'.$oldId, [
+            'user_id' => $employee->id, 'title' => 'Updated shift', 'starts_at' => '2027-03-02T10:00',
+            'ends_at' => '2027-03-02T18:00', 'break_minutes' => 45, 'notes' => '',
+        ])->assertOk()->assertJsonPath('replaced_shift_id', $oldId)->assertJsonPath('status', 'published');
+
+        $newId = $response->json('id');
+        $this->assertDatabaseHas('rota_shifts', ['id' => $oldId, 'status' => 'cancelled', 'starts_at' => '2027-03-01 09:00:00']);
+        $this->assertDatabaseHas('rota_shifts', ['id' => $newId, 'status' => 'published', 'title' => 'Updated shift', 'break_minutes' => 45]);
+        $this->assertDatabaseHas('rota_events', ['rota_shift_id' => $oldId, 'action' => 'shift_cancelled_for_replacement']);
+        $this->assertDatabaseHas('rota_events', ['rota_shift_id' => $newId, 'action' => 'published_shift_replaced']);
+    }
+
+    public function test_break_minutes_must_be_shorter_than_the_shift_and_zero_means_no_break(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('short-shift-break');
+        $fields = ['user_id' => $employee->id, 'title' => 'Short shift', 'starts_at' => '2027-03-01T10:00', 'ends_at' => '2027-03-01T10:15'];
+        $this->actingAs($admin, 'web')->post('/rota/shifts', $fields + ['break_minutes' => 15])->assertSessionHasErrors('break_minutes');
+        $this->assertDatabaseCount('rota_shifts', 0);
+        $this->actingAs($admin, 'web')->post('/rota/shifts', $fields + ['break_minutes' => 0])->assertRedirect();
+        $this->assertDatabaseHas('rota_shifts', ['business_id' => $businessId, 'user_id' => $employee->id, 'break_minutes' => 0, 'status' => 'draft']);
+    }
+
     public function test_weekly_publish_is_all_or_nothing_when_any_draft_conflicts(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('publish-conflict');

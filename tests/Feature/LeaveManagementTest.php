@@ -153,6 +153,26 @@ class LeaveManagementTest extends TestCase
         $this->assertDatabaseHas('leave_admin_events', ['subject_id' => $leaveRequest->id, 'action' => 'employee_leave_cancelled']);
     }
 
+    public function test_started_approved_leave_cannot_be_cancelled_by_employee_or_manager(): void
+    {
+        [$businessId, $admin, $employee] = $this->workspace('already-taken');
+        $today = now('Europe/London')->toDateString();
+        $requestId = DB::table('leave_requests')->insertGetId([
+            'business_id' => $businessId, 'user_id' => $employee->id, 'leave_type' => 'annual',
+            'start_date' => $today, 'end_date' => $today, 'working_days' => 1, 'status' => 'approved',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs($employee, 'sanctum')->postJson('/api/leave/requests/'.$requestId.'/cancel')
+            ->assertUnprocessable()->assertJsonValidationErrors('request');
+        $this->actingAs($admin, 'web')->get('/leave')->assertOk()
+            ->assertDontSee('/leave/requests/'.$requestId.'/cancel', false)->assertSee('Already taken');
+        $this->post('/leave/requests/'.$requestId.'/cancel', ['cancellation_note' => 'Employee has taken this leave.'])
+            ->assertSessionHasErrors('request');
+        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'status' => 'approved']);
+        $this->assertDatabaseMissing('leave_request_events', ['leave_request_id' => $requestId, 'action' => 'cancelled']);
+    }
+
     public function test_admin_booking_requires_confirmation_and_respects_rota_conflicts(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('admin-booking-conflict');

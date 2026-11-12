@@ -10,7 +10,7 @@ class ReportController {
  public function __construct(private AttendanceReport $reports){}
  private function filters(Request $r): array {
   $business=$r->user()->business_id;
-  return $r->validate(['period'=>'nullable|in:daily,weekly,monthly','date'=>'nullable|date_format:Y-m-d','employee_id'=>['nullable','integer',Rule::exists('users','id')->where('business_id',$business)],'branch_id'=>['nullable','integer',Rule::exists('branches','id')->where('business_id',$business)]]);
+  return $r->validate(['period'=>'nullable|in:daily,weekly,monthly,custom','date'=>'nullable|date_format:Y-m-d','start_date'=>['nullable','date_format:Y-m-d',Rule::requiredIf($r->input('period')==='custom')],'end_date'=>['nullable','date_format:Y-m-d',Rule::requiredIf($r->input('period')==='custom'),'after_or_equal:start_date'],'employee_id'=>['nullable','integer',Rule::exists('users','id')->where('business_id',$business)],'branch_id'=>['nullable','integer',Rule::exists('branches','id')->where('business_id',$business)],'deduct_breaks'=>'nullable|boolean']);
  }
  public function employee(Request $r){return response()->json($this->reports->make($r->user()->business_id,$this->filters($r),$r->user()->id));}
  public function index(Request $r){

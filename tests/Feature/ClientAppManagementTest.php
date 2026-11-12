@@ -51,7 +51,29 @@ class ClientAppManagementTest extends TestCase
         $this->actingAs($admin,'sanctum')->getJson('/api/manager/reports?period=daily&date='.now()->toDateString())->assertOk()->assertJsonCount(1,'records');
         $this->postJson('/api/manager/attendance/'.$record.'/correct',['clock_in'=>now()->subHours(3)->toIso8601String(),'clock_out'=>now()->subHour()->toIso8601String(),'reason'=>'Manager approved correction'])->assertOk();
         $this->assertDatabaseHas('audit_logs',['business_id'=>$admin->business_id,'actor_id'=>$admin->id,'attendance_id'=>$record,'action'=>'corrected']);
+        $this->postJson('/api/manager/attendance/'.$record.'/finalize')->assertOk();
+        $this->assertDatabaseHas('attendance_records',['id'=>$record,'finalized_by'=>$admin->id]);
+        $this->postJson('/api/manager/attendance/'.$record.'/correct',['clock_in'=>now()->subHours(4)->toIso8601String(),'clock_out'=>now()->subHour()->toIso8601String(),'reason'=>'Correction after final review'])->assertOk();
+        $this->assertDatabaseHas('attendance_records',['id'=>$record,'finalized_at'=>null,'finalized_by'=>null]);
         $this->postJson('/api/manager/attendance/'.$foreignRecord.'/correct',['clock_in'=>now()->subHours(3)->toIso8601String(),'clock_out'=>now()->subHour()->toIso8601String(),'reason'=>'Attempt foreign edit'])->assertNotFound();
+    }
+
+    public function test_manager_can_set_paid_holiday_hours_and_filter_payroll_report(): void
+    {
+        [$admin, $branch] = $this->account('Payroll Client', 'admin');
+        $employee = User::create(['business_id'=>$admin->business_id,'name'=>'Payroll Worker','email'=>'payroll-worker@example.test','password'=>'test-password-123','role'=>'employee','active'=>true]);
+        DB::table('employee_branches')->insert(['business_id'=>$admin->business_id,'user_id'=>$employee->id,'branch_id'=>$branch]);
+        DB::table('employee_leave_profiles')->insert(['business_id'=>$admin->business_id,'user_id'=>$employee->id,'annual_entitlement_override'=>null,'working_days'=>json_encode(['mon','tue','wed','thu','fri']),'created_at'=>now(),'updated_at'=>now()]);
+        DB::table('leave_requests')->insert(['business_id'=>$admin->business_id,'user_id'=>$employee->id,'leave_type'=>'annual','start_date'=>'2026-11-09','end_date'=>'2026-11-10','working_days'=>2,'status'=>'approved','created_at'=>now(),'updated_at'=>now()]);
+
+        $this->actingAs($admin, 'sanctum')->putJson('/api/manager/reports/employees/'.$employee->id.'/holiday-hours', ['holiday_hours_per_day'=>7.5])
+            ->assertOk()->assertJsonPath('holiday_hours_per_day',7.5);
+        $this->assertDatabaseHas('leave_admin_events',['business_id'=>$admin->business_id,'subject_id'=>$employee->id,'action'=>'holiday_hours_per_day_updated']);
+
+        $this->getJson('/api/manager/reports?period=custom&start_date=2026-11-09&end_date=2026-11-10&employee_id='.$employee->id.'&deduct_breaks=1')
+            ->assertOk()->assertJsonPath('total_annual_leave_days',2)->assertJsonPath('total_annual_leave_hours',15)
+            ->assertJsonPath('total_payroll_reference_hours',15)->assertJsonPath('holiday_hours_complete',true)
+            ->assertJsonPath('employee_summaries.0.payroll_reference_hours',15);
     }
 
     public function test_manager_api_enforces_branch_and_employee_quotas_and_saves_employee_profile(): void

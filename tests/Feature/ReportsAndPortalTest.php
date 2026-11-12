@@ -23,6 +23,18 @@ class ReportsAndPortalTest extends TestCase {
  public function test_dst_change_uses_elapsed_seconds(): void {
   [$u,$branch]=$this->account('a');$this->record($u,$branch,'2026-10-25 00:00:00','2026-10-25 03:00:00');$this->travelTo(now()->setDate(2026,10,26));$r=app(AttendanceReport::class)->make($u->business_id,['period'=>'daily','date'=>'2026-10-25']);$this->assertSame(10800,$r['total_seconds']);
  }
+ public function test_report_can_show_gross_break_and_net_hours_from_rota(): void {
+  [$u,$branch]=$this->account('manager','admin');
+  $this->record($u,$branch,'2026-11-12 10:00:00','2026-11-12 16:00:00');
+  DB::table('rota_shifts')->insert(['business_id'=>$u->business_id,'user_id'=>$u->id,'branch_id'=>$branch,'title'=>'Day shift','starts_at'=>'2026-11-12 10:00:00','ends_at'=>'2026-11-12 16:00:00','break_minutes'=>30,'status'=>'published','created_at'=>now(),'updated_at'=>now()]);
+  $this->travelTo(now()->setDate(2026,11,15));
+  $service=app(AttendanceReport::class);
+  $gross=$service->make($u->business_id,['period'=>'daily','date'=>'2026-11-12']);
+  $net=$service->make($u->business_id,['period'=>'daily','date'=>'2026-11-12','deduct_breaks'=>true]);
+  $this->assertSame(21600,$gross['total_gross_seconds']);$this->assertSame(1800,$gross['total_break_seconds']);
+  $this->assertSame(19800,$gross['total_net_seconds']);$this->assertSame(21600,$gross['total_seconds']);
+  $this->assertSame(19800,$net['total_seconds']);$this->assertSame(1800,$net['daily'][0]['break_seconds']);
+ }
  public function test_employee_report_cannot_request_someone_elses_records(): void {
   [$u,$branch]=$this->account('a');$v=User::create(['business_id'=>$u->business_id,'name'=>'Other','email'=>'other@example.test','password'=>'test-password-123','role'=>'employee','active'=>true]);$this->record($v,$branch,'2026-10-02 08:00:00','2026-10-02 10:00:00');
   $this->actingAs($u,'sanctum')->getJson('/api/reports?period=daily&date=2026-10-02&employee_id='.$v->id)->assertOk()->assertJsonCount(0,'records');
@@ -39,7 +51,7 @@ class ReportsAndPortalTest extends TestCase {
   [$u,$branch]=$this->account('a','admin');[$v,$other]=$this->account('b');$this->actingAs($u)->post('/employees/'.$v->id.'/edit',['name'=>'Changed','email'=>$v->email,'branches'=>[$branch]])->assertNotFound();$this->assertSame('b',$v->fresh()->name);
  }
  public function test_pdf_and_csv_downloads_and_report_email(): void {
-  config(['mail.default'=>'array']);[$u,$branch]=$this->account('a','admin');$this->record($u,$branch,'2026-10-02 08:00:00','2026-10-02 10:00:00');$this->actingAs($u)->get('/reports/download?period=daily&date=2026-10-02&format=pdf')->assertOk()->assertHeader('content-type','application/pdf');$this->get('/reports/download?period=daily&date=2026-10-02')->assertOk()->assertSee('Hours in period');$this->post('/reports/email',['period'=>'daily','date'=>'2026-10-02'])->assertRedirect();$messages=Mail::mailer()->getSymfonyTransport()->messages();$this->assertCount(1,$messages);$email=$messages->first()->getOriginalMessage();$this->assertSame($u->email,$email->getTo()[0]->getAddress());$this->assertCount(2,$email->getAttachments());
+  config(['mail.default'=>'array']);[$u,$branch]=$this->account('a','admin');$this->record($u,$branch,'2026-10-02 08:00:00','2026-10-02 10:00:00');$this->actingAs($u)->get('/reports/download?period=daily&date=2026-10-02&format=pdf')->assertOk()->assertHeader('content-type','application/pdf');$this->get('/reports/download?period=daily&date=2026-10-02')->assertOk()->assertSee('Employee payroll reference summary');$this->post('/reports/email',['period'=>'daily','date'=>'2026-10-02'])->assertRedirect();$messages=Mail::mailer()->getSymfonyTransport()->messages();$this->assertCount(1,$messages);$email=$messages->first()->getOriginalMessage();$this->assertSame($u->email,$email->getTo()[0]->getAddress());$this->assertCount(2,$email->getAttachments());
  }
  public function test_password_reset_revokes_tokens_and_does_not_reveal_unknown_accounts(): void {
   Notification::fake();[$u,$branch]=$this->account('a');$u->createToken('test');$known=$this->postJson('/api/auth/forgot-password',['email'=>$u->email])->assertOk()->json('message');$unknown=$this->postJson('/api/auth/forgot-password',['email'=>'unknown@example.test'])->assertOk()->json('message');$this->assertSame($known,$unknown);Notification::assertSentTo($u,ResetPassword::class);

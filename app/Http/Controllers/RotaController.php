@@ -191,7 +191,9 @@ class RotaController
         ]);
         $start = $this->parseLocal($values['starts_at'], $businessId);
         $end = $this->parseLocal($values['ends_at'], $businessId);
-        if ($end->diffInHours($start) > 18) throw ValidationException::withMessages(['ends_at' => 'A shift cannot exceed 18 hours.']);
+        $shiftSeconds = $end->getTimestamp() - $start->getTimestamp();
+        if ($shiftSeconds > 18 * 3600) throw ValidationException::withMessages(['ends_at' => 'A shift cannot exceed 18 hours.']);
+        if ((int) $values['break_minutes'] * 60 >= $shiftSeconds) throw ValidationException::withMessages(['break_minutes' => 'The unpaid break must be shorter than the shift. Enter 0 for no break.']);
         if ($values['branch_id'] && !DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $values['user_id'])->where('branch_id', $values['branch_id'])->exists()) {
             throw ValidationException::withMessages(['branch_id' => 'The employee is not assigned to this branch.']);
         }
@@ -235,6 +237,9 @@ class RotaController
             }
             if ($end->getTimestamp() - $start->getTimestamp() > 18 * 3600) {
                 throw ValidationException::withMessages(["shifts.{$index}.ends_at" => 'A shift cannot exceed 18 hours.']);
+            }
+            if ((int) $shiftValues['break_minutes'] * 60 >= $end->getTimestamp() - $start->getTimestamp()) {
+                throw ValidationException::withMessages(["shifts.{$index}.break_minutes" => 'The unpaid break must be shorter than the shift. Enter 0 for no break.']);
             }
             if (!empty($shiftValues['branch_id']) && !DB::table('employee_branches')->where('business_id', $businessId)
                 ->where('user_id', $shiftValues['user_id'])->where('branch_id', $shiftValues['branch_id'])->exists()) {
@@ -282,16 +287,42 @@ class RotaController
         if ($end->getTimestamp() - $start->getTimestamp() > 18 * 3600) {
             throw ValidationException::withMessages(['ends_at' => 'A shift cannot exceed 18 hours.']);
         }
+        if ((int) $values['break_minutes'] * 60 >= $end->getTimestamp() - $start->getTimestamp()) {
+            throw ValidationException::withMessages(['break_minutes' => 'The unpaid break must be shorter than the shift. Enter 0 for no break.']);
+        }
         if (!empty($values['branch_id']) && !DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $values['user_id'])->where('branch_id', $values['branch_id'])->exists()) {
             throw ValidationException::withMessages(['branch_id' => 'The employee is not assigned to this workplace.']);
         }
 
-        DB::transaction(function () use ($request, $businessId, $shiftId, $values, $start, $end) {
+        $result = DB::transaction(function () use ($request, $businessId, $shiftId, $values, $start, $end) {
             $shift = DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->lockForUpdate()->first();
             abort_unless($shift, 404);
-            if ($shift->status !== 'draft') throw ValidationException::withMessages(['shift' => 'Only draft shifts can be edited. Cancel a published shift and create a replacement to preserve its history.']);
+            if (!in_array($shift->status, ['draft', 'published'], true)) throw ValidationException::withMessages(['shift' => 'Cancelled shifts cannot be edited. Create a new shift instead.']);
+            if ($shift->status === 'published' && CarbonImmutable::parse($shift->starts_at, 'UTC')->lessThanOrEqualTo(CarbonImmutable::now('UTC'))) {
+                throw ValidationException::withMessages(['shift' => 'A started or completed published shift cannot be changed. Correct attendance separately if needed.']);
+            }
+            if ($shift->status === 'published' && $start->utc()->lessThanOrEqualTo(CarbonImmutable::now('UTC'))) {
+                throw ValidationException::withMessages(['starts_at' => 'An updated published shift must still be in the future.']);
+            }
             $employee = DB::table('users')->where('business_id', $businessId)->where('id', $values['user_id'])->where('role', 'employee')->where('active', true)->lockForUpdate()->first();
             abort_unless($employee, 404);
+            // Keep the published version immutable in the audit trail. Editing it
+            // cancels that version and creates a replacement in the same transaction.
+            if ($shift->status === 'published') {
+                DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->update(['status' => 'cancelled', 'updated_at' => now('UTC')]);
+                $this->audit($request, $businessId, $shiftId, 'shift_cancelled_for_replacement', (array) $shift, ['status' => 'cancelled']);
+                $oldId = $shiftId;
+                $shiftId = DB::table('rota_shifts')->insertGetId([
+                    'business_id' => $businessId, 'user_id' => $employee->id, 'branch_id' => $values['branch_id'] ?? null,
+                    'title' => $values['title'], 'starts_at' => $start->utc()->toDateTimeString(), 'ends_at' => $end->utc()->toDateTimeString(),
+                    'break_minutes' => $values['break_minutes'], 'notes' => $values['notes'] ?? null, 'status' => 'published',
+                    'created_by' => $request->user()->id, 'published_by' => $request->user()->id, 'published_at' => now('UTC'),
+                    'created_at' => now('UTC'), 'updated_at' => now('UTC'),
+                ]);
+                $this->planner->assertNoConflict($businessId, (int) $employee->id, $start, $end, $shiftId);
+                $this->audit($request, $businessId, $shiftId, 'published_shift_replaced', null, ['replaces_shift_id' => $oldId, ...$values]);
+                return ['id' => $shiftId, 'replaced_shift_id' => $oldId, 'status' => 'published'];
+            }
             $this->planner->assertNoConflict($businessId, (int) $employee->id, $start, $end, $shiftId);
             DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->update([
                 'user_id' => $employee->id, 'branch_id' => $values['branch_id'] ?? null, 'title' => $values['title'],
@@ -299,7 +330,9 @@ class RotaController
                 'break_minutes' => $values['break_minutes'], 'notes' => $values['notes'] ?? null, 'updated_at' => now('UTC'),
             ]);
             $this->audit($request, $businessId, $shiftId, 'draft_shift_updated', (array) $shift, $values);
+            return ['id' => $shiftId, 'status' => 'draft'];
         });
+        if ($request->expectsJson()) return response()->json(['message' => $result['status'] === 'published' ? 'Published shift updated. The previous version remains in rota history.' : 'Draft shift updated.', ...$result]);
         return back()->with('status', 'Draft shift updated. Review the rota before publishing it.');
     }
 
@@ -364,9 +397,13 @@ class RotaController
             $shift = DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->lockForUpdate()->first();
             abort_unless($shift, 404);
             if ($shift->status === 'cancelled') throw ValidationException::withMessages(['shift' => 'This shift is already cancelled.']);
+            if ($shift->status === 'published' && CarbonImmutable::parse($shift->starts_at, 'UTC')->lessThanOrEqualTo(CarbonImmutable::now('UTC'))) {
+                throw ValidationException::withMessages(['shift' => 'A started or completed shift cannot be cancelled from the rota. Correct attendance separately if required.']);
+            }
             DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->update(['status' => 'cancelled', 'updated_at' => now('UTC')]);
             $this->audit($request, $businessId, $shiftId, 'shift_cancelled', (array) $shift, ['status' => 'cancelled']);
         });
+        if ($request->expectsJson()) return response()->json(['message' => 'Shift cancelled. The change is recorded in rota history.']);
         return back()->with('status', 'Shift cancelled. The change is recorded in the rota history.');
     }
 

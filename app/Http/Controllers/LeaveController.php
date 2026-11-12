@@ -48,7 +48,7 @@ class LeaveController
         $employees = DB::table('users as u')->leftJoin('employee_leave_profiles as p', function ($join) use ($businessId) {
             $join->on('p.user_id', '=', 'u.id')->where('p.business_id', '=', $businessId);
         })->where('u.business_id', $businessId)->where('u.role', 'employee')->where('u.active', true)
-            ->select('u.id', 'u.name', 'u.employee_code', 'p.annual_entitlement_override', 'p.working_days')->orderBy('u.name')->get();
+            ->select('u.id', 'u.name', 'u.employee_code', 'p.annual_entitlement_override', 'p.working_days', 'p.holiday_hours_per_day')->orderBy('u.name')->get();
 
         $balances = [];
         foreach ($employees as $employee) $balances[$employee->id] = $this->leave->balance($businessId, (int) $employee->id);
@@ -92,7 +92,7 @@ class LeaveController
                 })->values()->all();
             });
 
-        return view('leave.index', compact('policy', 'employees', 'balances', 'requests', 'holidays', 'calendarHolidays', 'calendarShifts', 'adminEvents', 'editRequest', 'tab'));
+        return view('leave.index', compact('policy', 'employees', 'balances', 'requests', 'holidays', 'calendarHolidays', 'calendarShifts', 'adminEvents', 'editRequest', 'tab', 'today'));
     }
 
     public function calendar(Request $request)
@@ -132,6 +132,7 @@ class LeaveController
         abort_unless($employee, 404);
         $values = $request->validate([
             'annual_entitlement_override' => 'nullable|integer|min:0|max:366',
+            'holiday_hours_per_day' => 'nullable|numeric|min:0.25|max:24',
             'working_days' => 'required|array|min:1',
             'working_days.*' => ['required', Rule::in(LeaveManagement::WEEKDAYS)],
         ]);
@@ -139,12 +140,14 @@ class LeaveController
         $key = ['business_id' => $businessId, 'user_id' => $employeeId];
         $before = DB::table('employee_leave_profiles')->where($key)->first();
         $profileData = ['annual_entitlement_override' => $values['annual_entitlement_override'] ?? null,
+            'holiday_hours_per_day' => isset($values['holiday_hours_per_day']) ? round((float) $values['holiday_hours_per_day'], 2) : null,
             'working_days' => json_encode($days), 'updated_at' => now('UTC')];
         DB::transaction(function () use ($request, $businessId, $employeeId, $key, $profileData, $before, $values, $days) {
             if (!DB::table('employee_leave_profiles')->where($key)->exists()) $profileData['created_at'] = now('UTC');
             DB::table('employee_leave_profiles')->updateOrInsert($key, $profileData);
             $this->adminEvent($request, $businessId, 'employee_leave_profile', $employeeId, 'employee_leave_profile_updated',
-                $before ? (array) $before : null, ['annual_entitlement_override' => $values['annual_entitlement_override'] ?? null, 'working_days' => $days]);
+                $before ? (array) $before : null, ['annual_entitlement_override' => $values['annual_entitlement_override'] ?? null,
+                    'holiday_hours_per_day' => $profileData['holiday_hours_per_day'], 'working_days' => $days]);
         });
 
         return back()->with('status', 'Employee leave allowance and working days saved.');
@@ -281,6 +284,9 @@ class LeaveController
             abort_unless($record, 404);
             if (!in_array($record->status, ['pending', 'approved'], true)) {
                 throw ValidationException::withMessages(['request' => 'Only pending or approved leave can be cancelled.']);
+            }
+            if ($record->status === 'approved' && $record->start_date <= CarbonImmutable::now($this->timezone($businessId))->toDateString()) {
+                throw ValidationException::withMessages(['request' => 'Approved leave that has started or been taken cannot be cancelled.']);
             }
             $before = (array) $record;
             DB::table('leave_requests')->where('business_id', $businessId)->where('id', $requestId)
@@ -501,7 +507,7 @@ class LeaveController
                 throw ValidationException::withMessages(['request' => 'This request can no longer be cancelled.']);
             }
             if ($leaveRequest->status === 'approved' && $leaveRequest->start_date <= CarbonImmutable::now($this->timezone($businessId))->toDateString()) {
-                throw ValidationException::withMessages(['request' => 'Approved leave that has started cannot be cancelled in the app. Please contact your administrator.']);
+                throw ValidationException::withMessages(['request' => 'Approved leave that has started or been taken cannot be cancelled in the app. Please contact your administrator.']);
             }
             DB::table('leave_requests')->where('business_id', $businessId)->where('id', $requestId)->update(['status' => 'cancelled', 'updated_at' => now('UTC')]);
             DB::table('leave_request_events')->insert([

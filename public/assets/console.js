@@ -110,7 +110,7 @@ document.querySelectorAll('[data-leave-calendar]').forEach(calendar=>{
 document.querySelectorAll('[data-rota-batch]').forEach(form=>{
  const list=form.querySelector('[data-rota-batch-list]'),template=form.querySelector('[data-rota-row-template]'),add=form.querySelector('[data-add-rota-row]');
  if(!list||!template||!add)return;
- let nextIndex=list.querySelectorAll('[data-rota-row]').length;
+ let nextIndex=Math.max(-1,...[...list.querySelectorAll('[data-rota-row] [name]')].map(control=>Number(control.name.match(/^shifts\[(\d+)\]/)?.[1]??-1)))+1;
  const sync=()=>{
   const rows=[...list.querySelectorAll('[data-rota-row]')];
   rows.forEach(buttonRow=>{const remove=buttonRow.querySelector('[data-remove-rota-row]');if(remove)remove.disabled=rows.length<=1;});
@@ -120,7 +120,7 @@ document.querySelectorAll('[data-rota-batch]').forEach(form=>{
   if(list.querySelectorAll('[data-rota-row]').length>=100)return;
   const row=template.content.firstElementChild.cloneNode(true);
   row.querySelectorAll('[name]').forEach(control=>{control.name=control.name.replaceAll('__INDEX__',String(nextIndex));});
-  nextIndex++;list.append(row);sync();row.querySelector('select')?.focus();
+  nextIndex++;list.append(row);bindRotaDateSync(row);sync();row.querySelector('select')?.focus();
  });
  list.addEventListener('click',event=>{
   const remove=event.target.closest('[data-remove-rota-row]');
@@ -129,3 +129,28 @@ document.querySelectorAll('[data-rota-batch]').forEach(form=>{
  });
  sync();
 });
+const bindRotaDateSync=scope=>scope.querySelectorAll('[data-rota-start]').forEach(start=>{
+ if(start.dataset.dateSyncBound)return;
+ const row=start.closest('[data-rota-row]')||start.closest('form'),end=row?.querySelector('[data-rota-end]'),overnight=row?.querySelector('[data-rota-overnight]');
+ if(!end)return;
+ start.dataset.dateSyncBound='true';
+ const syncDate=()=>{
+  if(!start.value)return;
+  const [date,time]=start.value.split('T');
+  let endDate=date;
+  if(overnight?.checked){const [year,month,day]=date.split('-').map(Number),next=new Date(Date.UTC(year,month-1,day+1));endDate=`${next.getUTCFullYear()}-${String(next.getUTCMonth()+1).padStart(2,'0')}-${String(next.getUTCDate()).padStart(2,'0')}`;}
+  const endTime=end.value.split('T')[1]||time;
+  end.value=`${endDate}T${endTime}`;
+ };
+ start.addEventListener('change',syncDate);
+ overnight?.addEventListener('change',syncDate);
+ end.addEventListener('change',()=>{if(overnight&&start.value)overnight.checked=end.value.slice(0,10)!==start.value.slice(0,10);});
+});
+bindRotaDateSync(document);
+document.querySelectorAll('[data-open-rota-dialog]').forEach(button=>button.addEventListener('click',()=>{
+ const dialog=document.getElementById(button.dataset.openRotaDialog);if(dialog&&!dialog.open)dialog.showModal();
+}));
+document.querySelectorAll('[data-close-rota-dialog]').forEach(button=>button.addEventListener('click',()=>button.closest('dialog')?.close()));
+document.querySelectorAll('.rota-edit-dialog').forEach(dialog=>dialog.addEventListener('click',event=>{
+ if(event.target===dialog)dialog.close();
+}));

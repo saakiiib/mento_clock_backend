@@ -10,6 +10,7 @@
         .business-line { color: #303844; font-size: 10pt; margin-bottom: 6px; white-space: nowrap; }
         .business-name { font-weight: bold; }
         .business-address { color: #727985; }
+        .workplace-line { color: #727985; font-size: 8pt; margin-top: 3px; }
         h1 { font-size: 19px; margin: 0 0 4px; }
         p { color: #727985; margin: 0; }
         .week-label { color: #4f5660; font-size: 10pt; font-weight: bold; margin: 0 0 7px; }
@@ -34,6 +35,7 @@
 <body>
 <header>
     <div class="business-line"><span class="business-name">{{ $businessName }}</span>@if($businessAddress)<span class="business-address"> · {{ $businessAddress }}</span>@endif</div>
+    @if($workplaceNames->isNotEmpty())<p class="workplace-line">Workplace{{ $workplaceNames->count() === 1 ? '' : 's' }}: {{ $workplaceNames->implode(' · ') }}</p>@endif
     <h1>Staff rota</h1>
     <p>{{ $periodLabel }}</p>
     <p class="meta">Draft shifts are planning items and have not been published.</p>
@@ -63,7 +65,7 @@
                                     @forelse($dayShifts as $shift)
                                         <div class="shift">
                                             <div class="shift-time">{{ $shift->local_start->format('H:i') }}–{{ $shift->local_end->format('H:i') }}</div>
-                                            @if($shift->branch_name)<small>{{ $shift->branch_name }}</small>@endif
+                                            @if($shift->branch_name && $workplaceNames->count() > 1)<small>{{ $shift->branch_name }}</small>@endif
                                             <small class="status">{{ ucfirst($shift->status) }}</small>
                                             @if($showBreaks && (int) $shift->break_minutes > 0)<small>Break: {{ $shift->break_minutes }} min</small>@endif
                                         </div>

@@ -227,6 +227,37 @@ button:disabled{cursor:not-allowed;opacity:.55}
 .rota-shift-actions form{margin:0}.rota-shift-actions button,.rota-shift-card>form button{padding:6px 8px;font-size:11px}
 .rota-batch-list{display:grid;gap:12px}.rota-batch-row{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));align-items:end;gap:12px;padding:16px;border:1px solid var(--line);border-radius:12px;background:#fbfcfd}
 .rota-batch-row label{margin:0}.rota-batch-row button{min-height:42px}
+/* Rota grid cards stay readable at narrow day widths; edits use a spacious modal. */
+.rota-grid-scroll{overflow:auto;max-width:100%}
+.rota-grid{width:100%;min-width:1450px;table-layout:fixed}
+.rota-grid thead th:first-child,.rota-grid tbody th:first-child{width:190px}
+.rota-grid thead th:not(:first-child),.rota-grid tbody td{width:180px;min-width:180px}
+.rota-grid td.rota-day-cell{overflow:visible}
+.rota-shift-card{min-width:0;max-width:100%;overflow:hidden;overflow-wrap:anywhere}
+.rota-shift-card-head{align-items:flex-start;min-width:0}
+.rota-shift-card-head>strong{min-width:0;overflow-wrap:anywhere}
+.rota-shift-card .badge{flex:0 0 auto}
+.rota-shift-time{white-space:nowrap}
+.rota-shift-card>small{line-height:1.4;overflow-wrap:anywhere}
+.rota-edit-trigger{width:100%;padding:7px 9px;font-size:12px}
+.rota-edit-dialog{width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto;border:0;border-radius:18px;padding:24px;box-shadow:0 24px 80px #17203340;color:var(--ink);}
+.rota-edit-dialog::backdrop{background:#17203380;backdrop-filter:blur(3px)}
+.rota-edit-dialog-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:20px}
+.rota-edit-dialog-head h2{margin:4px 0 0}
+.rota-edit-dialog form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.rota-edit-dialog form label{margin:0}
+.rota-edit-dialog .rota-dialog-wide,.rota-edit-dialog .rota-dialog-actions{grid-column:1/-1}
+.rota-dialog-actions{display:flex;justify-content:flex-end;gap:10px}
+.rota-overnight-toggle{display:flex!important;align-items:center;gap:8px;min-height:42px}
+.rota-overnight-toggle input{width:auto!important;min-height:auto}
+.rota-copy-week-form{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) auto;align-items:end;gap:14px}
+.rota-copy-week-form label{margin:0}
+.rota-batch-row input[type=number]{step:1}
+.rota-batch-row small{display:block;color:var(--muted);margin-top:5px}
+.rota-batch-row .field-invalid{border-color:#c84b42;box-shadow:0 0 0 2px #c84b4218}
+.rota-batch-row .field-error{color:#b33b33;font-weight:500}
+@media(max-width:800px){.rota-copy-week-form{grid-template-columns:1fr 1fr}.rota-edit-dialog form{grid-template-columns:1fr}}
+@media(max-width:520px){.rota-copy-week-form{grid-template-columns:1fr}.rota-dialog-actions{flex-direction:column}}
 .leave-row-actions{display:grid;gap:10px;min-width:170px}.leave-row-actions>form{margin:0}.leave-row-actions details summary{cursor:pointer;color:#a5332b;font-weight:650}.leave-cancel-form{display:grid;gap:7px;margin-top:8px}.leave-cancel-form label{font-size:12px}
 @media(max-width:800px){.rota-batch-row{grid-template-columns:repeat(2,minmax(130px,1fr))}}
 @media(max-width:480px){.rota-batch-row{grid-template-columns:1fr}.leave-row-actions{min-width:140px}}

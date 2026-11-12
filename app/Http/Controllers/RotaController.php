@@ -30,6 +30,13 @@ class RotaController
         return CarbonImmutable::createFromFormat('!Y-m-d\\TH:i', $value, $this->timezone($businessId));
     }
 
+    private function assertFutureStart(CarbonImmutable $start, string $field = 'starts_at'): void
+    {
+        if ($start->lessThanOrEqualTo(CarbonImmutable::now($start->getTimezone()))) {
+            throw ValidationException::withMessages([$field => 'A rota shift must start in the future. Choose a current or future date.']);
+        }
+    }
+
     private function audit(Request $request, int $businessId, ?int $shiftId, string $action, ?array $before, ?array $after): void
     {
         DB::table('rota_events')->insert([
@@ -49,6 +56,16 @@ class RotaController
         abort_unless(is_string($week) && preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $week) && checkdate((int) substr($week, 5, 2), (int) substr($week, 8, 2), (int) substr($week, 0, 4)), 422);
         $start = CarbonImmutable::parse($week, $timezone)->startOfWeek();
         $end = $start->addDays(6)->endOfDay();
+        $today = CarbonImmutable::now($timezone)->startOfDay();
+        $canAddShifts = $end->greaterThan(CarbonImmutable::now($timezone));
+        $defaultShiftStart = CarbonImmutable::now($timezone)->addMinutes(15)->setSecond(0)->startOfMinute();
+        if ($defaultShiftStart->lessThan($start)) {
+            $defaultShiftStart = $start->setTime(9, 0);
+        } elseif ($defaultShiftStart->greaterThan($end)) {
+            $defaultShiftStart = $today->setTime(9, 0);
+        }
+        $defaultShiftEnd = $defaultShiftStart->addHours(8);
+        $defaultTargetWeek = CarbonImmutable::now($timezone)->startOfWeek()->addWeek()->max($start->addWeek());
 
         $shifts = DB::table('rota_shifts as s')->join('users as u', function ($join) use ($businessId) {
             $join->on('u.id', '=', 's.user_id')->where('u.business_id', '=', $businessId);
@@ -85,7 +102,7 @@ class RotaController
         $templates = DB::table('rota_templates')->where('business_id', $businessId)->where('active', true)->orderBy('name')->get();
         $draftCount = $shifts->where('status', 'draft')->count();
 
-        return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'shiftGrid', 'weekDays', 'employees', 'branches', 'holidays', 'leave', 'availability', 'templates', 'draftCount'));
+        return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'shiftGrid', 'weekDays', 'employees', 'branches', 'holidays', 'leave', 'availability', 'templates', 'draftCount', 'defaultShiftDate', 'defaultShiftStart', 'defaultShiftEnd', 'defaultTargetWeek', 'canAddShifts'));
     }
 
     public function managerWeek(Request $request)
@@ -163,6 +180,7 @@ class RotaController
             ->where('s.ends_at', '>', $start->utc()->toDateTimeString())
             ->select('s.*', 'u.name as employee_name', 'u.employee_code', 'b.name as branch_name')
             ->orderBy('s.starts_at')->get();
+        $workplaceNames = $shifts->pluck('branch_name')->filter()->unique()->values();
 
         $employees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)
             ->orderBy('name')->get(['id', 'name', 'employee_code']);
@@ -173,7 +191,7 @@ class RotaController
             $shiftGrid[$shift->user_id][$shift->local_start->toDateString()][] = $shift;
         }
 
-        $pdf = Pdf::loadView('rota.export', compact('period', 'employees', 'shiftGrid', 'weeks', 'start', 'end', 'periodLabel', 'timezone', 'businessName', 'businessAddress', 'showBreaks'))
+        $pdf = Pdf::loadView('rota.export', compact('period', 'employees', 'shiftGrid', 'weeks', 'start', 'end', 'periodLabel', 'timezone', 'businessName', 'businessAddress', 'workplaceNames', 'showBreaks'))
             ->setPaper('a4', 'landscape');
 
         return $pdf->download('mentoclock-rota-'.$period.'-'.$suffix.'.pdf');
@@ -191,6 +209,7 @@ class RotaController
         ]);
         $start = $this->parseLocal($values['starts_at'], $businessId);
         $end = $this->parseLocal($values['ends_at'], $businessId);
+        $this->assertFutureStart($start);
         $shiftSeconds = $end->getTimestamp() - $start->getTimestamp();
         if ($shiftSeconds > 18 * 3600) throw ValidationException::withMessages(['ends_at' => 'A shift cannot exceed 18 hours.']);
         if ((int) $values['break_minutes'] * 60 >= $shiftSeconds) throw ValidationException::withMessages(['break_minutes' => 'The unpaid break must be shorter than the shift. Enter 0 for no break.']);
@@ -232,6 +251,7 @@ class RotaController
         foreach ($values['shifts'] as $index => $shiftValues) {
             $start = $this->parseLocal($shiftValues['starts_at'], $businessId);
             $end = $this->parseLocal($shiftValues['ends_at'], $businessId);
+            $this->assertFutureStart($start, "shifts.{$index}.starts_at");
             if ($end->getTimestamp() <= $start->getTimestamp()) {
                 throw ValidationException::withMessages(["shifts.{$index}.ends_at" => 'The shift end must be after its start. For an overnight shift, choose its end on the following date.']);
             }
@@ -284,6 +304,7 @@ class RotaController
         ]);
         $start = $this->parseLocal($values['starts_at'], $businessId);
         $end = $this->parseLocal($values['ends_at'], $businessId);
+        $this->assertFutureStart($start);
         if ($end->getTimestamp() - $start->getTimestamp() > 18 * 3600) {
             throw ValidationException::withMessages(['ends_at' => 'A shift cannot exceed 18 hours.']);
         }
@@ -301,6 +322,7 @@ class RotaController
             if ($shift->status === 'published' && CarbonImmutable::parse($shift->starts_at, 'UTC')->lessThanOrEqualTo(CarbonImmutable::now('UTC'))) {
                 throw ValidationException::withMessages(['shift' => 'A started or completed published shift cannot be changed. Correct attendance separately if needed.']);
             }
+            $this->assertFutureStart($start);
             if ($shift->status === 'published' && $start->utc()->lessThanOrEqualTo(CarbonImmutable::now('UTC'))) {
                 throw ValidationException::withMessages(['starts_at' => 'An updated published shift must still be in the future.']);
             }
@@ -339,14 +361,16 @@ class RotaController
     public function publish(Request $request, int $shiftId)
     {
         $businessId = $this->businessId($request);
-        DB::transaction(function () use ($request, $businessId, $shiftId) {
+        $timezone = $this->timezone($businessId);
+        DB::transaction(function () use ($request, $businessId, $shiftId, $timezone) {
             $shift = DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->lockForUpdate()->first();
             abort_unless($shift, 404);
             if ($shift->status !== 'draft') throw ValidationException::withMessages(['shift' => 'Only draft shifts can be published.']);
             DB::table('users')->where('business_id', $businessId)->where('id', $shift->user_id)->lockForUpdate()->firstOrFail();
-            $this->planner->assertNoConflict($businessId, (int) $shift->user_id,
-                CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($this->timezone($businessId)),
-                CarbonImmutable::parse($shift->ends_at, 'UTC')->setTimezone($this->timezone($businessId)), $shiftId);
+            $shiftStart = CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($timezone);
+            $shiftEnd = CarbonImmutable::parse($shift->ends_at, 'UTC')->setTimezone($timezone);
+            $this->assertFutureStart($shiftStart);
+            $this->planner->assertNoConflict($businessId, (int) $shift->user_id, $shiftStart, $shiftEnd, $shiftId);
             DB::table('rota_shifts')->where('business_id', $businessId)->where('id', $shiftId)->update([
                 'status' => 'published', 'published_by' => $request->user()->id, 'published_at' => now('UTC'), 'updated_at' => now('UTC'),
             ]);
@@ -371,8 +395,10 @@ class RotaController
             foreach ($drafts as $shift) {
                 $employee = DB::table('users')->where('business_id', $businessId)->where('id', $shift->user_id)->lockForUpdate()->first();
                 abort_unless($employee && $employee->role === 'employee', 404);
+                $shiftStart = CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($timezone);
+                $this->assertFutureStart($shiftStart, 'starts_at');
                 $this->planner->assertNoConflict($businessId, (int) $employee->id,
-                    CarbonImmutable::parse($shift->starts_at, 'UTC')->setTimezone($timezone),
+                    $shiftStart,
                     CarbonImmutable::parse($shift->ends_at, 'UTC')->setTimezone($timezone), (int) $shift->id);
             }
 
@@ -479,6 +505,7 @@ class RotaController
                 abort_unless($employee, 422, 'A template employee is no longer active. Update the template before applying it.');
                 $start = $weekStart->addDays(((int) $item['weekday']) - 1)->setTimeFromTimeString($item['start_time']);
                 $end = $start->addDays((int) ($item['end_day_offset'] ?? 0))->setTimeFromTimeString($item['end_time']);
+                $this->assertFutureStart($start, 'week');
                 if ($end <= $start) throw ValidationException::withMessages(['week' => 'A template contains an invalid shift duration.']);
                 if (!empty($item['branch_id'])) {
                     $assigned = DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $employee->id)->where('branch_id', $item['branch_id'])->exists();
@@ -495,6 +522,64 @@ class RotaController
             }
         });
         return back()->with('status', 'Template shifts added as drafts. Review and publish the rota when ready.');
+    }
+
+    public function copyWeek(Request $request)
+    {
+        $businessId = $this->businessId($request);
+        $values = $request->validate([
+            'source_user_id' => ['required', 'integer', Rule::exists('users', 'id')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)],
+            'target_user_id' => ['required', 'integer', Rule::exists('users', 'id')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)],
+            'source_week' => 'required|date_format:Y-m-d',
+            'target_week' => 'required|date_format:Y-m-d',
+        ]);
+        if ((int) $values['source_user_id'] === (int) $values['target_user_id']) {
+            throw ValidationException::withMessages(['target_user_id' => 'Choose a different employee to copy this week to.']);
+        }
+        $timezone = $this->timezone($businessId);
+        $sourceStart = CarbonImmutable::parse($values['source_week'], $timezone)->startOfWeek();
+        $sourceEnd = $sourceStart->addWeek();
+        $targetStart = CarbonImmutable::parse($values['target_week'], $timezone)->startOfWeek();
+        $sourceShifts = DB::table('rota_shifts')->where('business_id', $businessId)->where('user_id', $values['source_user_id'])
+            ->whereIn('status', ['draft', 'published'])->where('starts_at', '>=', $sourceStart->utc()->toDateTimeString())
+            ->where('starts_at', '<', $sourceEnd->utc()->toDateTimeString())->orderBy('starts_at')->get();
+        if ($sourceShifts->isEmpty()) throw ValidationException::withMessages(['source_user_id' => 'There are no active shifts for this employee in the selected source week.']);
+
+        $created = DB::transaction(function () use ($request, $businessId, $values, $sourceShifts, $sourceStart, $targetStart, $timezone) {
+            $targetEmployee = DB::table('users')->where('business_id', $businessId)->where('id', $values['target_user_id'])
+                ->where('role', 'employee')->where('active', true)->lockForUpdate()->first();
+            abort_unless($targetEmployee, 404);
+            $count = 0;
+            foreach ($sourceShifts as $source) {
+                $localStart = CarbonImmutable::parse($source->starts_at, 'UTC')->setTimezone($timezone);
+                $localEnd = CarbonImmutable::parse($source->ends_at, 'UTC')->setTimezone($timezone);
+                $dayOffset = $localStart->dayOfWeekIso - 1;
+                $targetShiftStart = $targetStart->addDays($dayOffset)->setTimeFromTimeString($localStart->format('H:i:s'));
+                $endDayOffset = $localStart->isSameDay($localEnd) ? 0 : 1;
+                $targetShiftEnd = $targetStart->addDays($dayOffset + $endDayOffset)->setTimeFromTimeString($localEnd->format('H:i:s'));
+                $this->assertFutureStart($targetShiftStart, 'target_week');
+                if ($source->branch_id) {
+                    $activeBranch = DB::table('branches')->where('business_id', $businessId)->where('id', $source->branch_id)->where('active', true)->exists();
+                    if (!$activeBranch) throw ValidationException::withMessages(['target_user_id' => 'A workplace used in this rota is no longer active. Update the source rota before copying it.']);
+                    $assigned = DB::table('employee_branches')->where('business_id', $businessId)->where('user_id', $targetEmployee->id)->where('branch_id', $source->branch_id)->exists();
+                    if (!$assigned) throw ValidationException::withMessages(['target_user_id' => 'The target employee is not assigned to a workplace used in this rota.']);
+                }
+                $this->planner->assertNoConflict($businessId, (int) $targetEmployee->id, $targetShiftStart, $targetShiftEnd);
+                $id = DB::table('rota_shifts')->insertGetId([
+                    'business_id' => $businessId, 'user_id' => $targetEmployee->id, 'branch_id' => $source->branch_id,
+                    'title' => $source->title, 'starts_at' => $targetShiftStart->utc()->toDateTimeString(), 'ends_at' => $targetShiftEnd->utc()->toDateTimeString(),
+                    'break_minutes' => (int) $source->break_minutes, 'notes' => $source->notes, 'status' => 'draft',
+                    'created_by' => $request->user()->id, 'created_at' => now('UTC'), 'updated_at' => now('UTC'),
+                ]);
+                $this->audit($request, $businessId, $id, 'shift_copied_from_employee_week', null, [
+                    'source_user_id' => (int) $values['source_user_id'], 'source_shift_id' => (int) $source->id,
+                    'target_user_id' => (int) $targetEmployee->id, 'starts_at' => $targetShiftStart->toIso8601String(), 'ends_at' => $targetShiftEnd->toIso8601String(),
+                ]);
+                $count++;
+            }
+            return $count;
+        });
+        return back()->with('status', $created.' copied shift '.($created === 1 ? 'is' : 's are').' saved as drafts. Review and publish when ready.');
     }
 
     public function mine(Request $request)

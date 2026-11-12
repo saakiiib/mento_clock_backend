@@ -47,6 +47,7 @@ Route::middleware(['auth','active.business','workspace.access'])->group(function
  Route::get('/rota/export',[RotaController::class,'export'])->middleware(['module.enabled:rota_shifts','role.permission:rota.view']);
  Route::post('/rota/shifts',[RotaController::class,'store'])->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
  Route::post('/rota/shifts/batch',[RotaController::class,'storeBatch'])->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
+ Route::post('/rota/copy-week',[RotaController::class,'copyWeek'])->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
  Route::post('/rota/publish-week',[RotaController::class,'publishWeek'])->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
  Route::post('/rota/shifts/{shiftId}',[RotaController::class,'updateDraft'])->whereNumber('shiftId')->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);
  Route::post('/rota/shifts/{shiftId}/publish',[RotaController::class,'publish'])->whereNumber('shiftId')->middleware(['module.enabled:rota_shifts','role.permission:rota.manage']);

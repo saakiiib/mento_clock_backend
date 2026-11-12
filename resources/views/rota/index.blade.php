@@ -22,16 +22,18 @@
                         <div class="rota-shift-card-head"><strong>{{$shift->title}}</strong><span class="badge {{$shift->status === 'cancelled' ? 'inactive' : ($shift->status === 'draft' ? 'neutral' : 'success')}}">{{ucfirst($shift->status)}}</span></div>
                         <span class="rota-shift-time">{{$shift->local_start->format('H:i')}}–{{$shift->local_end->format('H:i')}}@unless($shift->local_start->isSameDay($shift->local_end)) +1 day @endunless</span>
                         <small>{{$shift->branch_name ?: 'No workplace'}} · Break {{$shift->break_minutes}} min</small>
-                        @if($shift->status === 'draft')<details class="rota-shift-edit"><summary>Edit</summary><form method="post" action="{{url('/rota/shifts/'.$shift->id)}}">@csrf
+                        @if(in_array($shift->status,['draft','published'],true) && ($shift->status === 'draft' || $shift->local_start->isFuture()))<button type="button" class="secondary rota-edit-trigger" data-open-rota-dialog="rota-edit-{{$shift->id}}">Edit shift</button><dialog class="rota-edit-dialog" id="rota-edit-{{$shift->id}}"><div class="rota-edit-dialog-head"><div><span class="eyebrow">SHIFT DETAILS</span><h2>Edit shift</h2></div><button type="button" class="secondary" data-close-rota-dialog>Close</button></div><form method="post" action="{{url('/rota/shifts/'.$shift->id)}}">@csrf
                             <label>Employee<select name="user_id" required>@foreach($employees as $option)<option value="{{$option->id}}" @selected((int)$option->id === (int)$shift->user_id)>{{$option->name}}</option>@endforeach</select></label>
                             <label>Workplace<select name="branch_id"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}" @selected((int)$branch->id === (int)$shift->branch_id)>{{$branch->name}}</option>@endforeach</select></label>
                             <label>Shift title<input name="title" maxlength="120" value="{{$shift->title}}" required></label>
-                            <label>Break minutes<input name="break_minutes" type="number" min="0" max="600" value="{{$shift->break_minutes}}" required></label>
-                            <label>Starts<input name="starts_at" type="datetime-local" value="{{$shift->local_start->format('Y-m-d\\TH:i')}}" required></label>
-                            <label>Ends<input name="ends_at" type="datetime-local" value="{{$shift->local_end->format('Y-m-d\\TH:i')}}" required></label>
-                            <label>Notes<input name="notes" maxlength="2000" value="{{$shift->notes}}"></label><button class="secondary">Save draft</button></form></details>
-                            <div class="rota-shift-actions"><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/publish')}}">@csrf<button>Publish</button></form><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this shift? The change will be recorded.">@csrf<button class="danger">Cancel</button></form></div>
-                        @elseif($shift->status === 'published')<form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this published shift? The employee’s rota will be updated and the change recorded.">@csrf<button class="danger">Cancel shift</button></form>@endif
+                            <label>Unpaid break (minutes)<input name="break_minutes" type="number" min="0" max="600" step="1" value="{{$shift->break_minutes}}" required></label>
+                            <label>Starts<input name="starts_at" type="datetime-local" value="{{$shift->local_start->format('Y-m-d\\TH:i')}}" data-rota-start required></label>
+                            <label>Ends<input name="ends_at" type="datetime-local" value="{{$shift->local_end->format('Y-m-d\\TH:i')}}" data-rota-end required></label>
+                            <label class="rota-overnight-toggle"><input type="checkbox" data-rota-overnight @checked(!$shift->local_start->isSameDay($shift->local_end))> Ends the following day</label>
+                            <label class="rota-dialog-wide">Notes<input name="notes" maxlength="2000" value="{{$shift->notes}}"></label><div class="rota-dialog-actions"><button>Save shift</button><button type="button" class="secondary" data-close-rota-dialog>Cancel</button></div></form></dialog>
+                            @if($shift->status === 'draft')<div class="rota-shift-actions"><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/publish')}}">@csrf<button>Publish</button></form><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this shift? The change will be recorded.">@csrf<button class="danger">Cancel</button></form></div>
+                            @else<form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this published shift? The employee’s rota will be updated and the change recorded.">@csrf<button class="danger">Cancel shift</button></form>@endif
+                        @elseif($shift->status === 'draft')<div class="rota-shift-actions"><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/publish')}}">@csrf<button>Publish</button></form><form method="post" action="{{url('/rota/shifts/'.$shift->id.'/cancel')}}" data-confirm="Cancel this shift? The change will be recorded.">@csrf<button class="danger">Cancel</button></form></div>@endif
                     </article>
                 @empty<span class="rota-empty-cell">—</span>@endforelse
             </td>
@@ -39,6 +41,15 @@
         </tr>
     @empty<tr><td colspan="8"><div class="empty-state"><h3>No active employees yet.</h3><p>Add employees before planning a rota.</p></div></td></tr>@endforelse
     </tbody></table></div>
+</section>
+
+<section class="card rota-copy-week-card"><div class="card-head"><div><span class="eyebrow">SAVE TIME</span><h2>Copy an employee’s week</h2><p>Copy shift days and times to another employee. New shifts are saved as drafts for review; existing shifts stay editable.</p></div></div>
+    <form method="post" action="{{url('/rota/copy-week')}}" class="rota-copy-week-form">@csrf<input type="hidden" name="source_week" value="{{$start->toDateString()}}">
+        <label>Copy this employee<select name="source_user_id" required><option value="">Choose employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}">{{$employee->name}}</option>@endforeach</select></label>
+        <label>To employee<select name="target_user_id" required><option value="">Choose employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}">{{$employee->name}}</option>@endforeach</select></label>
+        <label>Target week<input type="date" name="target_week" value="{{$defaultTargetWeek->toDateString()}}" required></label>
+        <button @disabled(!$canAddShifts)>Copy week as drafts</button>
+    </form>
 </section>
 
 @if(app(\App\Services\ModuleAccess::class)->enabled((int)auth()->user()->business_id,'rota_advanced'))
@@ -54,31 +65,38 @@
 
 <section class="card">
     <div class="card-head"><div><h2>Add shifts to this rota</h2><p>Add several employee shifts in one go. Every shift is checked for leave, closures, availability and overlaps before anything is saved.</p></div></div>
+    @if(!$canAddShifts)<div class="note">This week has ended. You can review its rota, but new shifts cannot be added to past dates.</div>
+    @else
+    @if($errors->any())<div class="alert error" role="alert"><strong>Some shift details need attention.</strong><p>Your entered shifts have been kept below. Correct the highlighted fields and submit again.</p><ul>@foreach($errors->all() as $error)<li>{{$error}}</li>@endforeach</ul></div>@endif
+    @php $batchRows = old('shifts', [['user_id'=>'','branch_id'=>'','title'=>'Shift','starts_at'=>$defaultShiftStart->format('Y-m-d\\TH:i'),'ends_at'=>$defaultShiftEnd->format('Y-m-d\\TH:i'),'break_minutes'=>'0','notes'=>'']]); @endphp
     <form method="post" action="{{url('/rota/shifts/batch')}}" data-rota-batch>@csrf
         <div class="rota-batch-list" data-rota-batch-list>
-            <div class="rota-batch-row" data-rota-row>
-                <label>Employee<select name="shifts[0][user_id]" required><option value="">Select employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}">{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></label>
-                <label>Workplace<select name="shifts[0][branch_id]"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}">{{$branch->name}}</option>@endforeach</select></label>
-                <label>Shift title<input name="shifts[0][title]" maxlength="120" value="Shift" required></label>
-                <label>Starts<input name="shifts[0][starts_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T09:00" required></label>
-                <label>Ends<input name="shifts[0][ends_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T17:30" required></label>
-                <label>Break (minutes)<input name="shifts[0][break_minutes]" type="number" min="0" max="600" value="0" required></label>
-                <label>Note (optional)<input name="shifts[0][notes]" maxlength="2000"></label>
+            @foreach($batchRows as $index => $row)<div class="rota-batch-row" data-rota-row>
+                <label>Employee<select name="shifts[{{$index}}][user_id]" required><option value="">Select employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}" @selected((string)($row['user_id'] ?? '') === (string)$employee->id)>{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></label>
+                <label>Workplace<select name="shifts[{{$index}}][branch_id]"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}" @selected((string)($row['branch_id'] ?? '') === (string)$branch->id)>{{$branch->name}}</option>@endforeach</select></label>
+                <label>Shift title<input name="shifts[{{$index}}][title]" maxlength="120" value="{{old("shifts.$index.title",$row['title'] ?? 'Shift')}}" required></label>
+                <label>Starts<input name="shifts[{{$index}}][starts_at]" type="datetime-local" value="{{old("shifts.$index.starts_at",$row['starts_at'] ?? '')}}" data-rota-start required></label>
+                <label>Ends<input name="shifts[{{$index}}][ends_at]" type="datetime-local" value="{{old("shifts.$index.ends_at",$row['ends_at'] ?? '')}}" data-rota-end required></label>
+                <label class="rota-overnight-toggle"><input type="checkbox" data-rota-overnight @checked(substr($row['ends_at'] ?? '',0,10) !== substr($row['starts_at'] ?? '',0,10))> Ends the following day</label>
+                <label>Unpaid break (minutes)<input name="shifts[{{$index}}][break_minutes]" type="number" min="0" max="600" step="1" value="{{old("shifts.$index.break_minutes",$row['break_minutes'] ?? '0')}}" @class(['field-invalid'=>$errors->has("shifts.$index.break_minutes")]) required>@if($errors->has("shifts.$index.break_minutes"))<small class="field-error">{{$errors->first("shifts.$index.break_minutes")}}</small>@else<small>Enter whole minutes; use 0 for no break.</small>@endif</label>
+                <label>Note (optional)<input name="shifts[{{$index}}][notes]" maxlength="2000" value="{{old("shifts.$index.notes",$row['notes'] ?? '')}}"></label>
                 <button type="button" class="danger" data-remove-rota-row>Remove row</button>
-            </div>
+            </div>@endforeach
         </div>
         <template data-rota-row-template><div class="rota-batch-row" data-rota-row>
             <label>Employee<select name="shifts[__INDEX__][user_id]" required><option value="">Select employee</option>@foreach($employees as $employee)<option value="{{$employee->id}}">{{$employee->name}}{{$employee->employee_code ? ' · '.$employee->employee_code : ''}}</option>@endforeach</select></label>
             <label>Workplace<select name="shifts[__INDEX__][branch_id]"><option value="">No workplace</option>@foreach($branches as $branch)<option value="{{$branch->id}}">{{$branch->name}}</option>@endforeach</select></label>
             <label>Shift title<input name="shifts[__INDEX__][title]" maxlength="120" value="Shift" required></label>
-            <label>Starts<input name="shifts[__INDEX__][starts_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T09:00" required></label>
-            <label>Ends<input name="shifts[__INDEX__][ends_at]" type="datetime-local" value="{{$start->format('Y-m-d')}}T17:30" required></label>
-            <label>Break (minutes)<input name="shifts[__INDEX__][break_minutes]" type="number" min="0" max="600" value="0" required></label>
+            <label>Starts<input name="shifts[__INDEX__][starts_at]" type="datetime-local" value="{{$defaultShiftStart->format('Y-m-d\\TH:i')}}" data-rota-start required></label>
+            <label>Ends<input name="shifts[__INDEX__][ends_at]" type="datetime-local" value="{{$defaultShiftEnd->format('Y-m-d\\TH:i')}}" data-rota-end required></label>
+            <label class="rota-overnight-toggle"><input type="checkbox" data-rota-overnight> Ends the following day</label>
+            <label>Unpaid break (minutes)<input name="shifts[__INDEX__][break_minutes]" type="number" min="0" max="600" step="1" value="0" required><small>Enter whole minutes; use 0 for no break.</small></label>
             <label>Note (optional)<input name="shifts[__INDEX__][notes]" maxlength="2000"></label>
             <button type="button" class="danger" data-remove-rota-row>Remove row</button>
         </div></template>
         <div class="form-actions"><button type="button" class="secondary" data-add-rota-row>Add another shift</button><button>Save all as drafts</button></div>
     </form>
+    @endif
 </section>
 
 <section class="card">

@@ -62,6 +62,7 @@ class RotaManagementTest extends TestCase
     public function test_manager_can_create_multiple_checked_draft_shifts_in_one_submission(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('batch');
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 08:00:00', 'Europe/London'));
         $shift = ['user_id' => $employee->id, 'title' => 'Day shift', 'break_minutes' => 15];
         $this->actingAs($admin, 'web')->post('/rota/shifts/batch', ['shifts' => [
             $shift + ['starts_at' => '2026-10-12T09:00', 'ends_at' => '2026-10-12T17:00'],
@@ -76,6 +77,7 @@ class RotaManagementTest extends TestCase
     public function test_rota_manager_page_uses_an_employee_by_day_grid_and_batch_entry(): void
     {
         [, $admin, $employee] = $this->workspace('manager-grid');
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 08:00:00', 'Europe/London'));
         $this->actingAs($admin, 'web')->get('/rota?week=2026-10-12')->assertOk()
             ->assertSee('Each row is an employee and each column is a day.')
             ->assertSee($employee->name)->assertSee('Mon')->assertSee('Sun')
@@ -86,6 +88,7 @@ class RotaManagementTest extends TestCase
     public function test_batch_rota_creation_rolls_back_all_rows_when_any_shift_conflicts(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('batch-conflict');
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 08:00:00', 'Europe/London'));
         $shift = ['user_id' => $employee->id, 'title' => 'Day shift', 'break_minutes' => 0, 'starts_at' => '2026-10-12T09:00', 'ends_at' => '2026-10-12T17:00'];
         $this->actingAs($admin, 'web')->post('/rota/shifts/batch', ['shifts' => [$shift, $shift]])
             ->assertSessionHasErrors('starts_at');
@@ -97,6 +100,7 @@ class RotaManagementTest extends TestCase
     public function test_manager_can_publish_all_drafts_for_the_selected_week(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('publish-week');
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 08:00:00', 'Europe/London'));
         foreach (['2026-10-12 09:00:00', '2026-10-13 09:00:00'] as $start) {
             $end = CarbonImmutable::parse($start)->addHours(8)->toDateTimeString();
             DB::table('rota_shifts')->insert([
@@ -149,6 +153,7 @@ class RotaManagementTest extends TestCase
     public function test_weekly_publish_is_all_or_nothing_when_any_draft_conflicts(): void
     {
         [$businessId, $admin, $employee] = $this->workspace('publish-conflict');
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 08:00:00', 'Europe/London'));
         foreach (range(1, 2) as $index) {
             DB::table('rota_shifts')->insert([
                 'business_id' => $businessId, 'user_id' => $employee->id, 'title' => 'Overlapping shift '.$index,
@@ -187,12 +192,13 @@ class RotaManagementTest extends TestCase
             'shiftGrid' => [$employee->id => ['2026-10-12' => [$shift]]],
             'weeks' => [array_map(fn ($offset) => $monday->addDays($offset), range(0, 6))],
             'start' => $monday, 'end' => $monday->addWeek(), 'periodLabel' => '12 Oct 2026 – 18 Oct 2026',
-            'timezone' => 'Europe/London', 'businessName' => 'Rota print', 'businessAddress' => '10 High Street, London, E1 1AA',
+            'timezone' => 'Europe/London', 'businessName' => 'Rota print', 'businessAddress' => '10 High Street, London, E1 1AA', 'workplaceNames' => collect(['London Shop']),
         ];
 
         $withoutBreaks = view('rota.export', [...$data, 'showBreaks' => false])->render();
         $this->assertStringContainsString('Rota print', $withoutBreaks);
         $this->assertStringContainsString('10 High Street, London, E1 1AA', $withoutBreaks);
+        $this->assertStringContainsString('Workplace: London Shop', $withoutBreaks);
         $this->assertStringContainsString('Mon 12 Oct', $withoutBreaks);
         $this->assertStringContainsString('09:00–13:00', $withoutBreaks);
         $this->assertStringNotContainsString('Times shown in Europe/London', $withoutBreaks);
@@ -216,5 +222,54 @@ class RotaManagementTest extends TestCase
 
         $this->actingAs($employee, 'sanctum')->getJson('/api/rota')->assertOk()
             ->assertJsonCount(1, 'shifts')->assertJsonPath('shifts.0.title', 'Visible shift');
+    }
+
+    public function test_manager_cannot_create_a_backdated_rota_shift(): void
+    {
+        [, $admin, $employee] = $this->workspace('backdated');
+        $this->travelTo(CarbonImmutable::parse('2026-11-12 12:00:00', 'Europe/London'));
+
+        $this->actingAs($admin, 'web')->post('/rota/shifts', [
+            'user_id' => $employee->id, 'title' => 'Past shift', 'starts_at' => '2026-11-11T09:00',
+            'ends_at' => '2026-11-11T17:00', 'break_minutes' => 0,
+        ])->assertSessionHasErrors('starts_at');
+
+        $this->assertDatabaseCount('rota_shifts', 0);
+    }
+
+    public function test_manager_can_copy_a_future_employee_week_to_another_employee_as_drafts(): void
+    {
+        [$businessId, $admin, $source] = $this->workspace('copy-week');
+        $target = User::create(['business_id' => $businessId, 'name' => 'Target employee', 'email' => 'copy-target@example.test', 'password' => 'secure-manager-password', 'role' => 'employee', 'active' => true]);
+        $this->travelTo(CarbonImmutable::parse('2026-11-01 08:00:00', 'Europe/London'));
+        DB::table('rota_shifts')->insert([
+            'business_id' => $businessId, 'user_id' => $source->id, 'title' => 'Opening shift',
+            'starts_at' => '2026-11-09 09:00:00', 'ends_at' => '2026-11-09 17:00:00',
+            'break_minutes' => 30, 'status' => 'published', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs($admin, 'web')->post('/rota/copy-week', [
+            'source_user_id' => $source->id, 'target_user_id' => $target->id,
+            'source_week' => '2026-11-09', 'target_week' => '2026-11-16',
+        ])->assertRedirect()->assertSessionHas('status', '1 copied shift is saved as drafts. Review and publish when ready.');
+
+        $this->assertDatabaseHas('rota_shifts', [
+            'business_id' => $businessId, 'user_id' => $target->id, 'title' => 'Opening shift',
+            'starts_at' => '2026-11-16 09:00:00', 'ends_at' => '2026-11-16 17:00:00', 'status' => 'draft', 'break_minutes' => 30,
+        ]);
+    }
+
+    public function test_invalid_batch_keeps_entered_rows_in_old_input(): void
+    {
+        [, $admin, $employee] = $this->workspace('batch-input');
+        $this->travelTo(CarbonImmutable::parse('2026-11-01 08:00:00', 'Europe/London'));
+        $this->actingAs($admin, 'web')->post('/rota/shifts/batch', ['shifts' => [[
+            'user_id' => $employee->id, 'title' => 'Monday opening', 'starts_at' => '2026-11-09T09:00',
+            'ends_at' => '2026-11-09T17:00', 'break_minutes' => '30.5', 'notes' => 'Keep this note',
+        ]]])->assertSessionHasErrors('shifts.0.break_minutes')
+            ->assertSessionHas('_old_input.shifts.0.title', 'Monday opening')
+            ->assertSessionHas('_old_input.shifts.0.notes', 'Keep this note');
+
+        $this->assertDatabaseCount('rota_shifts', 0);
     }
 }

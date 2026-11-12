@@ -102,7 +102,7 @@ class RotaController
         $templates = DB::table('rota_templates')->where('business_id', $businessId)->where('active', true)->orderBy('name')->get();
         $draftCount = $shifts->where('status', 'draft')->count();
 
-        return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'shiftGrid', 'weekDays', 'employees', 'branches', 'holidays', 'leave', 'availability', 'templates', 'draftCount', 'defaultShiftDate', 'defaultShiftStart', 'defaultShiftEnd', 'defaultTargetWeek', 'canAddShifts'));
+        return view('rota.index', compact('week', 'start', 'end', 'timezone', 'shifts', 'shiftGrid', 'weekDays', 'employees', 'branches', 'holidays', 'leave', 'availability', 'templates', 'draftCount', 'defaultShiftStart', 'defaultShiftEnd', 'defaultTargetWeek', 'canAddShifts'));
     }
 
     public function managerWeek(Request $request)

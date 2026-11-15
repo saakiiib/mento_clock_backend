@@ -13,7 +13,7 @@ class MarketingAdminController
         'features_title', 'features_description', 'workflow_title', 'pricing_title',
         'pricing_description', 'pricing_note', 'contact_title', 'contact_description',
         'whatsapp_number', 'contact_email', 'footer_text', 'site_url', 'portal_url',
-        'app_store_url', 'play_store_url', 'seo_title', 'seo_description',
+        'seo_title', 'seo_description',
         'privacy_text', 'terms_text', 'cookie_text',
     ];
 
@@ -40,7 +40,7 @@ class MarketingAdminController
         $rules['contact_title'] = 'required|string|max:200';
         $rules['whatsapp_number'] = ['required', 'string', 'regex:/^[1-9][0-9]{7,14}$/'];
         $rules['contact_email'] = 'required|email|max:254';
-        foreach (['site_url', 'portal_url', 'app_store_url', 'play_store_url'] as $key) {
+        foreach (['site_url', 'portal_url'] as $key) {
             $rules[$key] = 'nullable|url:https|max:255';
         }
         $values = $request->validate($rules);

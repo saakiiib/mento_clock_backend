@@ -14,8 +14,10 @@ Route::get('/',function(Request $request){
 });
 Route::get('/privacy',[MarketingSiteController::class,'legal'])->defaults('page','privacy');
 Route::get('/terms',[MarketingSiteController::class,'legal'])->defaults('page','terms');
+Route::get('/cookies',[MarketingSiteController::class,'legal'])->defaults('page','cookies');
 Route::get('/privacy.php',fn()=>redirect('/privacy',301));
 Route::get('/terms.php',fn()=>redirect('/terms',301));
+Route::get('/cookies.php',fn()=>redirect('/cookies',301));
 Route::post('/contact',[MarketingSiteController::class,'contact'])->middleware('throttle:10,1');
 Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');

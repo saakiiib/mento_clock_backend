@@ -2,10 +2,50 @@
 const menu = document.querySelector('.menu-toggle'), nav = document.querySelector('#main-nav');
 menu?.addEventListener('click', () => { const open=nav.classList.toggle('open');menu.setAttribute('aria-expanded',String(open));menu.setAttribute('aria-label',open?'Close navigation':'Open navigation'); });
 nav?.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>{nav.classList.remove('open');menu?.setAttribute('aria-expanded','false');}));
-const switchButtons=document.querySelectorAll('[data-view]');
-switchButtons.forEach(button=>button.addEventListener('click',()=>{switchButtons.forEach(b=>{const active=b===button;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});document.querySelectorAll('[data-screen]').forEach(screen=>screen.hidden=screen.dataset.screen!==button.dataset.view);}));
-let clockedIn=false;
-document.querySelector('#demo-punch')?.addEventListener('click',event=>{clockedIn=!clockedIn;document.querySelector('#demo-status').textContent=clockedIn?'You’re clocked in':'Shift complete';document.querySelector('#demo-time').textContent=clockedIn?'0h 0m':'8h 0m';document.querySelector('#demo-copy').textContent=clockedIn?'Sample clock-in recorded. In the real app, this is saved to your business account.':'Sample clock-out recorded. Your shift is ready to report.';event.currentTarget.firstChild.textContent=clockedIn?'Try clocking out ':'Try another clock-in ';});
-document.querySelectorAll('[data-period]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-period]').forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button));});const month=button.dataset.period==='month';document.querySelector('#demo-total').textContent=month?'160h 0m':'40h 0m';document.querySelector('#demo-period-label').textContent=month?'September 2026 · sample':'28 Sep – 4 Oct 2026';document.querySelectorAll('.report-demo-bars>div>span').forEach((label,i)=>label.textContent=month?['Wk 1','Wk 2','Wk 3','Wk 4','Wk 5'][i]:['Mon','Tue','Wed','Thu','Fri'][i]);document.querySelectorAll('.report-demo-bars progress').forEach((bar,i)=>{bar.max=month?45:9;bar.value=month?[40,40,40,40,0][i]:[8,7.5,8.5,8,8][i];});document.querySelectorAll('.report-demo-bars strong').forEach((label,i)=>label.textContent=month?['40h','40h','40h','40h','0h'][i]:['8h','7h 30m','8h 30m','8h','8h'][i]);}));
+
+const setDemoScreen = (screenName) => {
+  document.querySelectorAll('[data-screen]').forEach(screen => { screen.hidden = screen.dataset.screen !== screenName; });
+  document.querySelectorAll('[data-demo-screen]').forEach(button => {
+    const active = button.dataset.demoScreen === screenName;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+};
+document.querySelectorAll('[data-demo-role]').forEach(button => button.addEventListener('click', () => {
+  const role = button.dataset.demoRole;
+  document.querySelectorAll('[data-demo-role]').forEach(other => {
+    const active = other === button;
+    other.classList.toggle('active', active);
+    other.setAttribute('aria-pressed', String(active));
+  });
+  document.querySelectorAll('[data-demo-nav]').forEach(navGroup => { navGroup.hidden = navGroup.dataset.demoNav !== role; });
+  setDemoScreen(role === 'employee' ? 'employee-clock' : 'manager-overview');
+  const heading = document.querySelector('[data-demo-heading]');
+  if (heading) heading.textContent = role === 'employee' ? 'EMPLOYEE APP PREVIEW' : 'BUSINESS OWNER APP PREVIEW';
+}));
+document.querySelectorAll('[data-demo-screen]').forEach(button => button.addEventListener('click', () => setDemoScreen(button.dataset.demoScreen)));
+
+let demoClockedIn = false;
+document.querySelector('#demo-punch')?.addEventListener('click', event => {
+  demoClockedIn = !demoClockedIn;
+  const status = document.querySelector('[data-clock-status]');
+  const time = document.querySelector('[data-clock-time]');
+  const copy = document.querySelector('[data-clock-copy]');
+  if (status) status.textContent = demoClockedIn ? 'You’re clocked in · since 09:02' : 'Shift complete · 7h 30m worked';
+  if (time) time.textContent = demoClockedIn ? '09:02' : '16:32';
+  if (copy) copy.textContent = demoClockedIn ? 'Your clock-in is recorded in this sample. Clock out when your shift ends.' : 'Sample shift complete. Break time is shown separately in attendance reports.';
+  event.currentTarget.innerHTML = demoClockedIn ? 'Clock out →' : 'Clock in again →';
+});
+
+document.querySelector('[data-demo-holiday-form]')?.addEventListener('submit', event => {
+  event.preventDefault();
+  const feedback = document.querySelector('[data-holiday-feedback]');
+  if (feedback) { feedback.textContent = 'Sample request ready · 14–16 Dec · 3 working days. Nothing has been sent.'; feedback.hidden = false; }
+});
+document.querySelectorAll('[data-demo-action]').forEach(button => button.addEventListener('click', () => {
+  const feedback = button.closest('[data-screen]')?.querySelector('[data-manager-feedback]');
+  if (feedback) { feedback.textContent = button.dataset.demoAction; feedback.hidden = false; }
+}));
+
 const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',minimumFractionDigits:2});
 document.querySelectorAll('[data-billing]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-billing]').forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button));});document.querySelectorAll('.price-value').forEach(price=>{const value=price.dataset[button.dataset.billing];price.querySelector('strong').textContent=value?money.format(Number(value)):'Let’s talk';price.querySelector('span').textContent=value?(button.dataset.billing==='annual'?'per year':'per month'):'A quote for your team';});}));

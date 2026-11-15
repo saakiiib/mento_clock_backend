@@ -22,6 +22,7 @@
 <h3>Search and legal text</h3><div class="form-two"><div><label>SEO title</label><input name="seo_title" value="{{old('seo_title',$settings['seo_title']??'')}}" maxlength="200"></div><div><label>SEO description</label><textarea name="seo_description" rows="3" maxlength="500">{{old('seo_description',$settings['seo_description']??'')}}</textarea></div></div>
 <label>Privacy notice</label><textarea name="privacy_text" rows="8" maxlength="12000">{{old('privacy_text',$settings['privacy_text']??'')}}</textarea>
 <label>Website terms</label><textarea name="terms_text" rows="8" maxlength="12000">{{old('terms_text',$settings['terms_text']??'')}}</textarea>
+<label>Cookie policy</label><textarea name="cookie_text" rows="8" maxlength="12000">{{old('cookie_text',$settings['cookie_text']??'')}}</textarea>
 <div class="form-actions"><button>Save website settings</button></div></form></section>
 
 @php $kindTitles=['plan'=>'Pricing packages','feature'=>'Homepage features','faq'=>'Frequently asked questions']; $anchors=['plan'=>'packages','feature'=>'features','faq'=>'faqs']; @endphp

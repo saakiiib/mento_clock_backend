@@ -14,7 +14,7 @@ class MarketingAdminController
         'pricing_description', 'pricing_note', 'contact_title', 'contact_description',
         'whatsapp_number', 'contact_email', 'footer_text', 'site_url', 'portal_url',
         'app_store_url', 'play_store_url', 'seo_title', 'seo_description',
-        'privacy_text', 'terms_text',
+        'privacy_text', 'terms_text', 'cookie_text',
     ];
 
     public function index()

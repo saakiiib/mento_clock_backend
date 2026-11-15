@@ -25,9 +25,10 @@ class MarketingSiteController
 
     public function legal(Request $request, string $page)
     {
-        abort_unless(in_array($page, ['privacy', 'terms'], true), 404);
+        abort_unless(in_array($page, ['privacy', 'terms', 'cookies'], true), 404);
         $s = MarketingSite::settings();
-        $title = $page === 'privacy' ? 'Privacy notice | MentoClock' : 'Website terms | MentoClock';
+        $titles = ['privacy' => 'Privacy notice', 'terms' => 'Website terms', 'cookies' => 'Cookie policy'];
+        $title = $titles[$page].' | MentoClock';
         return $this->secure(response()->view('marketing.legal', [
             's' => $s, 'title' => $title, 'page' => $page, 'canonicalPath' => '/'.$page,
         ]));

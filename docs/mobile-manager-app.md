@@ -2,6 +2,17 @@
 
 Business administrators can sign in to the Flutter app and use a mobile manager workspace. Employee accounts continue to use employee clocking, holiday, rota, and profile screens. Platform super-admin operations remain in the web platform portal.
 
+## Account security and personal email
+
+Employee and business-admin sessions use the same authenticated account endpoints:
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/auth/change-password` | Requires the current password, a new password of at least 10 characters, and a matching `password_confirmation`; keeps the current token and revokes other API tokens for that account |
+| `POST /api/profile` | Allows the signed-in user to change their personal email (their sign-in ID) and permitted contact/address fields; email must be valid and unique |
+
+The mobile app validates password confirmation before submitting, and Laravel validates the confirmation again. A password change requires Sanctum authentication and a successful server-side check of the current password. If the user enabled saved sign-in on the device, the app updates that stored credential after the API accepts the change.
+
 ## Manager API
 
 Every endpoint requires a bearer token for an active `admin` user and is scoped to that user's business. The API does not accept a client-supplied business ID.

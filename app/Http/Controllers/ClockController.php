@@ -47,18 +47,20 @@ class ClockController {
     'rota_shifts'=>$modules->enabled((int)$u->business_id,'rota_shifts'),
    ],
    'profile_editable_fields'=>[
-    'phone','alternative_phone','home_address_line_1','home_address_line_2','home_city','home_county',
+    'email','phone','alternative_phone','home_address_line_1','home_address_line_2','home_city','home_county',
     'home_postcode','home_country','emergency_contact_name','emergency_contact_relationship',
     'emergency_contact_phone','emergency_contact_email','emergency_contact_address',
    ],
    'profile_read_only_fields'=>[
-    'name','email','employee_code','job_title','department','employment_type','employment_start_date','branches',
+   'name','employee_code','job_title','department','employment_type','employment_start_date','branches',
    ],
   ];
  }
  public function me(Request $r){return response()->json(['user'=>$this->account($r->user())]);}
  public function profile(Request $r){
+  if($r->exists('email')) $r->merge(['email'=>strtolower(trim((string)$r->input('email')))]);
   $v=$r->validate([
+   'email'=>'sometimes|required|email:rfc|max:255|unique:users,email,'.(int)$r->user()->id,
    'phone'=>'sometimes|nullable|string|max:40','alternative_phone'=>'sometimes|nullable|string|max:40',
    'home_address_line_1'=>'sometimes|nullable|string|max:255','home_address_line_2'=>'sometimes|nullable|string|max:255',
    'home_city'=>'sometimes|nullable|string|max:100','home_county'=>'sometimes|nullable|string|max:100',
@@ -72,6 +74,28 @@ class ClockController {
   if (!$v) throw ValidationException::withMessages(['profile'=>'Update at least one contact or address field.']);
   $r->user()->fill($v)->save();
   return response()->json(['message'=>'Profile updated.','user'=>$this->account($r->user()->fresh())]);
+ }
+ public function changePassword(Request $r){
+  $v=$r->validate([
+   'current_password'=>'required|string',
+   'password'=>['required','string','min:10','confirmed',function($attribute,$value,$fail){if(strlen($value)>72)$fail('Use a password of at most 72 bytes.');}],
+  ]);
+  $user=$r->user();
+  if(!Hash::check($v['current_password'],$user->password)){
+   throw ValidationException::withMessages(['current_password'=>'Your current password is incorrect.']);
+  }
+  if(Hash::check($v['password'],$user->password)){
+   throw ValidationException::withMessages(['password'=>'Choose a password different from your current one.']);
+  }
+  $user->password=Hash::make($v['password']);
+  $user->save();
+  // Keep this device signed in while revoking any other mobile/API sessions.
+  $currentToken=$user->currentAccessToken();
+  if($currentToken && method_exists($currentToken,'getKey')){
+   $user->tokens()->where('id','!=',$currentToken->getKey())->delete();
+  }
+  Log::info('User password changed', ['user_id'=>$user->id,'business_id'=>$user->business_id,'ip'=>$r->ip()]);
+  return response()->json(['message'=>'Password updated successfully.']);
  }
  public function logout(Request $r){$u=$r->user();$u?->currentAccessToken()?->delete();Log::info('User logged out', ['user_id' => $u?->id, 'business_id' => $u?->business_id, 'ip' => $r->ip()]);return response()->json(['message'=>'Signed out.']);}
  public function history(Request $r){

@@ -99,6 +99,14 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::post('/admins',[PlatformAdminManagementController::class,'store'])->middleware('throttle:5,1');
  Route::post('/admins/{adminId}',[PlatformAdminManagementController::class,'update'])->whereNumber('adminId')->middleware('throttle:10,1');
  Route::get('/support',[PlatformSupportController::class,'index']);
+ Route::get('/trial-requests',[MarketingAdminController::class,'trialRequests']);
+ Route::get('/trial-requests/export',[MarketingAdminController::class,'exportTrialRequests']);
+ Route::post('/trial-requests/{id}',[MarketingAdminController::class,'updateTrialRequest'])->whereNumber('id');
+ Route::post('/trial-requests/{id}/delete',[MarketingAdminController::class,'deleteTrialRequest'])->whereNumber('id');
+ Route::get('/general-enquiries',[MarketingAdminController::class,'generalEnquiries']);
+ Route::get('/general-enquiries/export',[MarketingAdminController::class,'exportGeneralEnquiries']);
+ Route::post('/general-enquiries/{id}',[MarketingAdminController::class,'updateGeneralEnquiry'])->whereNumber('id');
+ Route::post('/general-enquiries/{id}/delete',[MarketingAdminController::class,'deleteGeneralEnquiry'])->whereNumber('id');
  Route::get('/support/employees/{employeeId}',[PlatformSupportController::class,'employee'])->whereNumber('employeeId');
  Route::post('/support/employees/{employeeId}/reset-link',[PlatformSupportController::class,'sendResetLink'])->whereNumber('employeeId')->middleware('throttle:3,1');
  Route::post('/support/employees/{employeeId}/email',[PlatformSupportController::class,'updateLoginEmail'])->whereNumber('employeeId');

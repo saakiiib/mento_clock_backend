@@ -57,3 +57,6 @@ document.querySelectorAll('[data-open-trial]').forEach(button=>button.addEventLi
 document.querySelectorAll('[data-close-trial]').forEach(button=>button.addEventListener('click',()=>trialDialog?.close()));
 trialDialog?.addEventListener('click',event=>{if(event.target===trialDialog)trialDialog.close();});
 if(trialDialog&&location.hash==='#trial-request')openTrial();
+
+
+document.querySelectorAll('.trial-form').forEach(form=>form.addEventListener('submit',event=>{if(form.dataset.submitting==='true'){event.preventDefault();return;}form.dataset.submitting='true';const button=form.querySelector('.trial-submit');if(button){button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Saving your request…';}}));

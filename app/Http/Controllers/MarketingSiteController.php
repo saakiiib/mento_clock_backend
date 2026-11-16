@@ -21,6 +21,7 @@ class MarketingSiteController
             'title' => $s['seo_title'] ?? 'MentoClock',
             'canonicalPath' => '/',
             'notice' => session('marketing_notice', ''),
+            'trialSubmissionKey' => \Illuminate\Support\Str::random(64),
         ]));
     }
 
@@ -86,12 +87,6 @@ class MarketingSiteController
         }
 
         $key = 'marketing-private-trial:'.hash('sha256', (string) $request->ip());
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            return redirect('/#trial-request')->withErrors([
-                'trial_request' => 'Too many trial requests from this connection. Please try again later or contact us on WhatsApp.',
-            ])->withInput();
-        }
-
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:100',
             'company' => 'required|string|max:120',
@@ -100,34 +95,75 @@ class MarketingSiteController
             'employees' => ['required', 'string', 'in:1–10 employees,11–30 employees,31–100 employees,100+ employees'],
             'branches' => ['required', 'string', 'in:1 location,2–5 locations,6+ locations'],
             'consent' => 'accepted',
+            'submission_key' => 'required|string|size:64|alpha_num',
         ], ['consent.accepted' => 'Please agree that Mento Software can use these details to arrange your private trial.']);
 
         if ($validator->fails()) {
             return redirect('/#trial-request')->withErrors($validator, 'trialRequest')->withInput();
         }
 
-        RateLimiter::hit($key, 3600);
         $values = $validator->validated();
-        $name = trim($values['name']);
-        $company = trim($values['company']);
-        $email = strtolower(trim($values['email']));
-        $phone = trim($values['phone'] ?? '');
+        $submissionKey = $values['submission_key'];
+        $existing = DB::table('marketing_site_enquiries')
+            ->where('request_type', 'private_trial')
+            ->where('submission_key', $submissionKey)
+            ->first();
 
-        // Save first so the Super Admin still receives the request if WhatsApp is closed.
-        DB::table('marketing_site_enquiries')->insert([
-            'name' => $name,
-            'company' => $company,
-            'email' => $email,
-            'phone' => $phone,
-            'employees' => $values['employees'],
-            'branches' => $values['branches'],
-            'request_type' => 'private_trial',
-            'consented_at' => now('UTC'),
-            'message' => 'Private trial request submitted from the MentoClock website.',
-            'status' => 'new',
-            'created_at' => now('UTC'),
-            'updated_at' => now('UTC'),
-        ]);
+        if (!$existing) {
+            if (RateLimiter::tooManyAttempts($key, 5)) {
+                return redirect('/#trial-request')->withErrors([
+                    'trial_request' => 'Too many trial requests from this connection. Please try again later or contact us on WhatsApp.',
+                ])->withInput();
+            }
+            RateLimiter::hit($key, 3600);
+
+            $name = trim($values['name']);
+            $company = trim($values['company']);
+            $email = strtolower(trim($values['email']));
+            $phone = trim($values['phone'] ?? '');
+
+            // Save first so the Super Admin still receives the request if WhatsApp is closed.
+            try {
+                DB::table('marketing_site_enquiries')->insert([
+                    'name' => $name,
+                    'company' => $company,
+                    'email' => $email,
+                    'phone' => $phone,
+                    'employees' => $values['employees'],
+                    'branches' => $values['branches'],
+                    'request_type' => 'private_trial',
+                    'submission_key' => $submissionKey,
+                    'consented_at' => now('UTC'),
+                    'message' => 'Private trial request submitted from the MentoClock website.',
+                    'status' => 'new',
+                    'created_at' => now('UTC'),
+                    'updated_at' => now('UTC'),
+                ]);
+            } catch (\Illuminate\Database\QueryException $exception) {
+                // A simultaneous repeated POST can race the first insert; reuse its saved request.
+                $existing = DB::table('marketing_site_enquiries')
+                    ->where('request_type', 'private_trial')
+                    ->where('submission_key', $submissionKey)
+                    ->first();
+                if (!$existing) {
+                    throw $exception;
+                }
+            }
+        }
+
+        if ($existing) {
+            $name = $existing->name;
+            $company = $existing->company;
+            $email = $existing->email;
+            $phone = $existing->phone;
+            $values['employees'] = $existing->employees;
+            $values['branches'] = $existing->branches;
+        } else {
+            $name = trim($values['name']);
+            $company = trim($values['company']);
+            $email = strtolower(trim($values['email']));
+            $phone = trim($values['phone'] ?? '');
+        }
 
         $message = "Hi Mento Software, I’d like to request a private MentoClock trial.\n\n".
             "Owner: {$name}\nBusiness: {$company}\nEmail: {$email}".
@@ -135,7 +171,17 @@ class MarketingSiteController
             "\nTeam: {$values['employees']}\nWorkplaces: {$values['branches']}\n\n".
             'Please contact me to arrange a secure trial workspace.';
 
-        return redirect()->away(MarketingSite::whatsapp(MarketingSite::settings(), $message));
+        // Save first, then show a same-site confirmation. WhatsApp is opened by
+        // a direct user click on the confirmation page, which works more reliably
+        // for app hand-off than an external redirect after a form POST.
+        $whatsappUrl = MarketingSite::whatsapp(MarketingSite::settings(), $message);
+        return $this->secure(response()->view('marketing.trial-success', [
+            's' => MarketingSite::settings(),
+            'title' => 'Trial request received | MentoClock',
+            'canonicalPath' => '/',
+            'firstName' => explode(' ', $name)[0] ?? $name,
+            'whatsappUrl' => $whatsappUrl,
+        ]));
     }
 
     private function secure(\Illuminate\Http\Response $response): \Illuminate\Http\Response

@@ -261,3 +261,5 @@ button:disabled{cursor:not-allowed;opacity:.55}
 .leave-row-actions{display:grid;gap:10px;min-width:170px}.leave-row-actions>form{margin:0}.leave-row-actions details summary{cursor:pointer;color:#a5332b;font-weight:650}.leave-cancel-form{display:grid;gap:7px;margin-top:8px}.leave-cancel-form label{font-size:12px}
 @media(max-width:800px){.rota-batch-row{grid-template-columns:repeat(2,minmax(130px,1fr))}}
 @media(max-width:480px){.rota-batch-row{grid-template-columns:1fr}.leave-row-actions{min-width:140px}}
+
+.request-actions{margin-top:18px;justify-content:space-between}.request-actions form{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.request-actions label{display:grid;gap:5px;margin:0;font-size:11px}.request-actions select{min-width:150px}.general-enquiry-message{margin-top:18px;padding:14px 16px;border-radius:9px;background:#f7f8fa}.general-enquiry-message strong{font-size:10px;color:#676f7a}.general-enquiry-message p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:600px){.request-actions{align-items:flex-start;flex-direction:column}.request-actions form{align-items:flex-start}}

@@ -3,6 +3,21 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\{ClientApiController,ClockController,LeaveController,PasswordController,ReportController,RotaController,NoticeController};
 Route::post('auth/login',[ClockController::class,'login']);
 Route::post('auth/forgot-password',[PasswordController::class,'forgot']);
+// Public release check used by the mobile app before sign-in.
+Route::get('app/version',function(){
+ $platform = request('platform') === 'ios' ? 'ios' : 'android';
+ $latest = config('app_update.'.$platform);
+ $updateAvailable = (int) request('build', 0) < (int) $latest['build'] || version_compare((string) request('version', '0'), (string) $latest['version'], '<');
+ return response()->json([
+  'update_available' => $updateAvailable,
+  'update_required' => $updateAvailable && (bool) config('app_update.required'),
+  'latest_version' => $latest['version'],
+  'latest_build' => (string) $latest['build'],
+  'message' => $updateAvailable ? 'A new version of MentoClock is available.' : 'You are on the latest version.',
+  'store_url' => $latest['store_url'],
+  'remind_later_hours' => (int) config('app_update.remind_later_hours'),
+ ]);
+});
 Route::middleware(['auth:sanctum','active.business'])->group(function(){
  Route::post('auth/logout',[ClockController::class,'logout']);Route::post('auth/change-password',[ClockController::class,'changePassword'])->middleware('throttle:6,1');Route::get('me',[ClockController::class,'me']);Route::post('profile',[ClockController::class,'profile']);
  Route::get('attendance',[ClockController::class,'history'])->middleware('module.enabled:attendance_tracking');Route::post('attendance/clock-in',[ClockController::class,'clockIn'])->middleware('module.enabled:attendance_tracking');Route::post('attendance/{id}/clock-out',[ClockController::class,'clockOut'])->whereNumber('id')->middleware('module.enabled:attendance_tracking');

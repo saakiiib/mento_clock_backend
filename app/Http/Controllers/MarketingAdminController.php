@@ -21,14 +21,126 @@ class MarketingAdminController
     {
         $settings = DB::table('marketing_site_settings')->pluck('value', 'key');
         $content = DB::table('marketing_site_content')->orderBy('kind')->orderBy('position')->orderBy('id')->get()->groupBy('kind');
-        $enquiries = DB::table('marketing_site_enquiries')->orderByDesc('id')->limit(200)->get();
+        $generalEnquiries = $this->generalEnquiryQuery()->count();
         $stats = [
-            'new' => DB::table('marketing_site_enquiries')->where('status', 'new')->count(),
             'trials' => DB::table('marketing_site_enquiries')->where('request_type', 'private_trial')->count(),
+            'general' => $generalEnquiries,
             'total' => DB::table('marketing_site_enquiries')->count(),
             'plans' => DB::table('marketing_site_content')->where('kind', 'plan')->where('active', true)->count(),
         ];
-        return view('platform.website', compact('settings', 'content', 'enquiries', 'stats'));
+        return view('platform.website', compact('settings', 'content', 'stats'));
+    }
+
+    public function generalEnquiries()
+    {
+        $base = $this->generalEnquiryQuery();
+        $enquiries = (clone $base)->orderByDesc('created_at')->limit(500)->get();
+        $stats = [
+            'new' => (clone $base)->where('status', 'new')->count(),
+            'contacted' => (clone $base)->where('status', 'contacted')->count(),
+            'closed' => (clone $base)->where('status', 'closed')->count(),
+            'total' => (clone $base)->count(),
+        ];
+        return view('platform.general-enquiries', compact('enquiries', 'stats'));
+    }
+
+    public function exportGeneralEnquiries()
+    {
+        $rows = $this->generalEnquiryQuery()->orderByDesc('id')->cursor();
+        return response()->streamDownload(function () use ($rows) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['ID', 'Name', 'Business', 'Email', 'Phone', 'Team size', 'Workplaces', 'Message', 'Status', 'Created at UTC']);
+            foreach ($rows as $row) {
+                $cells = [$row->id, $row->name, $row->company, $row->email, $row->phone, $row->employees, $row->branches, $row->message, $row->status, $row->created_at];
+                fputcsv($out, array_map(static function ($value) {
+                    $value = (string) $value;
+                    return preg_match('/^[\\s]*[=+\\-@]/', $value) ? "'".$value : $value;
+                }, $cells));
+            }
+            fclose($out);
+        }, 'mentoclock-general-enquiries.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function updateGeneralEnquiry(Request $request, int $id)
+    {
+        $values = $request->validate(['status' => ['required', Rule::in(['new', 'contacted', 'closed'])]]);
+        $query = $this->generalEnquiryQuery()->where('id', $id);
+        abort_unless((clone $query)->exists(), 404);
+        $query->update(['status' => $values['status'], 'updated_at' => now('UTC')]);
+        $this->audit('General website enquiry status updated', ['enquiry_id' => $id, 'status' => $values['status']]);
+        return back()->with('status', 'General enquiry status saved.');
+    }
+
+    public function deleteGeneralEnquiry(int $id)
+    {
+        $query = $this->generalEnquiryQuery()->where('id', $id);
+        abort_unless((clone $query)->exists(), 404);
+        $query->delete();
+        $this->audit('General website enquiry deleted', ['enquiry_id' => $id]);
+        return back()->with('status', 'General enquiry deleted.');
+    }
+
+    private function generalEnquiryQuery()
+    {
+        return DB::table('marketing_site_enquiries')->where(function ($query) {
+            $query->where('request_type', 'enquiry')->orWhereNull('request_type');
+        });
+    }
+
+    public function trialRequests()
+    {
+        $enquiries = DB::table('marketing_site_enquiries')
+            ->where('request_type', 'private_trial')
+            ->orderByDesc('created_at')
+            ->limit(500)
+            ->get();
+        $stats = [
+            'new' => DB::table('marketing_site_enquiries')->where('request_type', 'private_trial')->where('status', 'new')->count(),
+            'contacted' => DB::table('marketing_site_enquiries')->where('request_type', 'private_trial')->where('status', 'contacted')->count(),
+            'closed' => DB::table('marketing_site_enquiries')->where('request_type', 'private_trial')->where('status', 'closed')->count(),
+            'total' => DB::table('marketing_site_enquiries')->where('request_type', 'private_trial')->count(),
+        ];
+        return view('platform.trial-requests', compact('enquiries', 'stats'));
+    }
+
+    public function exportTrialRequests()
+    {
+        $rows = DB::table('marketing_site_enquiries')
+            ->where('request_type', 'private_trial')
+            ->orderByDesc('id')
+            ->cursor();
+        return response()->streamDownload(function () use ($rows) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['ID', 'Name', 'Business', 'Email', 'Phone', 'Team size', 'Workplaces', 'Status', 'Consent recorded UTC', 'Created at UTC']);
+            foreach ($rows as $row) {
+                $cells = [$row->id, $row->name, $row->company, $row->email, $row->phone, $row->employees, $row->branches, $row->status, $row->consented_at, $row->created_at];
+                fputcsv($out, array_map(static function ($value) {
+                    $value = (string) $value;
+                    return preg_match('/^[\\s]*[=+\\-@]/', $value) ? "'".$value : $value;
+                }, $cells));
+            }
+            fclose($out);
+        }, 'mentoclock-trial-requests.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function updateTrialRequest(Request $request, int $id)
+    {
+        $values = $request->validate(['status' => ['required', Rule::in(['new', 'contacted', 'closed'])]]);
+        $query = DB::table('marketing_site_enquiries')
+            ->where('id', $id)->where('request_type', 'private_trial');
+        abort_unless((clone $query)->exists(), 404);
+        $query->update(['status' => $values['status'], 'updated_at' => now('UTC')]);
+        $this->audit('Private trial request status updated', ['enquiry_id' => $id, 'status' => $values['status']]);
+        return back()->with('status', 'Trial request status saved.');
+    }
+
+    public function deleteTrialRequest(int $id)
+    {
+        $deleted = DB::table('marketing_site_enquiries')
+            ->where('id', $id)->where('request_type', 'private_trial')->delete();
+        abort_unless($deleted, 404);
+        $this->audit('Private trial request deleted', ['enquiry_id' => $id]);
+        return back()->with('status', 'Trial request deleted.');
     }
 
     public function updateSettings(Request $request)

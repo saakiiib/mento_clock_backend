@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
-use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController};
+use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController};
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -19,6 +19,7 @@ Route::get('/privacy.php',fn()=>redirect('/privacy',301));
 Route::get('/terms.php',fn()=>redirect('/terms',301));
 Route::get('/cookies.php',fn()=>redirect('/cookies',301));
 Route::post('/contact',[MarketingSiteController::class,'contact'])->middleware('throttle:10,1');
+Route::post('/trial-request',[MarketingSiteController::class,'trialRequest'])->middleware('throttle:6,1');
 Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');
 Route::middleware(['auth','active.business','workspace.access'])->group(function(){
@@ -94,6 +95,16 @@ Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalid
 // Platform accounts use an independent guard and have no employee/attendance API access.
 Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::get('/',[PlatformController::class,'index']);
+ Route::get('/admins',[PlatformAdminManagementController::class,'index']);
+ Route::post('/admins',[PlatformAdminManagementController::class,'store'])->middleware('throttle:5,1');
+ Route::post('/admins/{adminId}',[PlatformAdminManagementController::class,'update'])->whereNumber('adminId')->middleware('throttle:10,1');
+ Route::get('/support',[PlatformSupportController::class,'index']);
+ Route::get('/support/employees/{employeeId}',[PlatformSupportController::class,'employee'])->whereNumber('employeeId');
+ Route::post('/support/employees/{employeeId}/reset-link',[PlatformSupportController::class,'sendResetLink'])->whereNumber('employeeId')->middleware('throttle:3,1');
+ Route::post('/support/employees/{employeeId}/email',[PlatformSupportController::class,'updateLoginEmail'])->whereNumber('employeeId');
+ Route::post('/support/employees/{employeeId}/status',[PlatformSupportController::class,'employeeStatus'])->whereNumber('employeeId');
+ Route::post('/support/employees/{employeeId}/attendance',[PlatformSupportController::class,'addAttendance'])->whereNumber('employeeId');
+ Route::post('/support/attendance/{attendanceId}',[PlatformSupportController::class,'correctAttendance'])->whereNumber('attendanceId');
  Route::get('/clients/create',[PlatformController::class,'create']);
  Route::post('/clients',[PlatformController::class,'store']);
  Route::get('/clients/{id}',[PlatformController::class,'show'])->whereNumber('id');

@@ -49,3 +49,11 @@ document.querySelectorAll('[data-demo-action]').forEach(button => button.addEven
 
 const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',minimumFractionDigits:2});
 document.querySelectorAll('[data-billing]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-billing]').forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button));});document.querySelectorAll('.price-value').forEach(price=>{const value=price.dataset[button.dataset.billing];price.querySelector('strong').textContent=value?money.format(Number(value)):'Let’s talk';price.querySelector('span').textContent=value?(button.dataset.billing==='annual'?'per year':'per month'):'A quote for your team';});}));
+
+
+const trialDialog=document.querySelector('#trial-dialog');
+const openTrial=()=>{if(trialDialog&&!trialDialog.open)trialDialog.showModal();};
+document.querySelectorAll('[data-open-trial]').forEach(button=>button.addEventListener('click',event=>{event.preventDefault();openTrial();}));
+document.querySelectorAll('[data-close-trial]').forEach(button=>button.addEventListener('click',()=>trialDialog?.close()));
+trialDialog?.addEventListener('click',event=>{if(event.target===trialDialog)trialDialog.close();});
+if(trialDialog&&location.hash==='#trial-request')openTrial();

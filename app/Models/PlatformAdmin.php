@@ -6,7 +6,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 
 class PlatformAdmin extends Authenticatable
 {
-    protected $fillable = ['name', 'email', 'password', 'active'];
+    protected $fillable = ['name', 'email', 'phone', 'password', 'active'];
     protected $hidden = ['password', 'remember_token'];
     protected $attributes = ['active' => true, 'auth_version' => 1];
 

@@ -6,6 +6,7 @@ use App\Support\MarketingSite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 
 class MarketingSiteController
 {
@@ -76,6 +77,65 @@ class MarketingSiteController
             "\nTeam: {$values['employees']}\nWorkplaces: {$values['branches']}\n\n{$values['message']}";
         $settings = MarketingSite::settings();
         return redirect()->away(MarketingSite::whatsapp($settings, $message));
+    }
+
+    public function trialRequest(Request $request)
+    {
+        if (trim((string) $request->input('website', '')) !== '') {
+            return redirect('/#trial-request');
+        }
+
+        $key = 'marketing-private-trial:'.hash('sha256', (string) $request->ip());
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            return redirect('/#trial-request')->withErrors([
+                'trial_request' => 'Too many trial requests from this connection. Please try again later or contact us on WhatsApp.',
+            ])->withInput();
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:100',
+            'company' => 'required|string|max:120',
+            'email' => 'required|email|max:254',
+            'phone' => 'nullable|string|max:30',
+            'employees' => ['required', 'string', 'in:1–10 employees,11–30 employees,31–100 employees,100+ employees'],
+            'branches' => ['required', 'string', 'in:1 location,2–5 locations,6+ locations'],
+            'consent' => 'accepted',
+        ], ['consent.accepted' => 'Please agree that Mento Software can use these details to arrange your private trial.']);
+
+        if ($validator->fails()) {
+            return redirect('/#trial-request')->withErrors($validator, 'trialRequest')->withInput();
+        }
+
+        RateLimiter::hit($key, 3600);
+        $values = $validator->validated();
+        $name = trim($values['name']);
+        $company = trim($values['company']);
+        $email = strtolower(trim($values['email']));
+        $phone = trim($values['phone'] ?? '');
+
+        // Save first so the Super Admin still receives the request if WhatsApp is closed.
+        DB::table('marketing_site_enquiries')->insert([
+            'name' => $name,
+            'company' => $company,
+            'email' => $email,
+            'phone' => $phone,
+            'employees' => $values['employees'],
+            'branches' => $values['branches'],
+            'request_type' => 'private_trial',
+            'consented_at' => now('UTC'),
+            'message' => 'Private trial request submitted from the MentoClock website.',
+            'status' => 'new',
+            'created_at' => now('UTC'),
+            'updated_at' => now('UTC'),
+        ]);
+
+        $message = "Hi Mento Software, I’d like to request a private MentoClock trial.\n\n".
+            "Owner: {$name}\nBusiness: {$company}\nEmail: {$email}".
+            ($phone !== '' ? "\nPhone: {$phone}" : '').
+            "\nTeam: {$values['employees']}\nWorkplaces: {$values['branches']}\n\n".
+            'Please contact me to arrange a secure trial workspace.';
+
+        return redirect()->away(MarketingSite::whatsapp(MarketingSite::settings(), $message));
     }
 
     private function secure(\Illuminate\Http\Response $response): \Illuminate\Http\Response

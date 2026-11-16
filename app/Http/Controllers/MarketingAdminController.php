@@ -24,6 +24,7 @@ class MarketingAdminController
         $enquiries = DB::table('marketing_site_enquiries')->orderByDesc('id')->limit(200)->get();
         $stats = [
             'new' => DB::table('marketing_site_enquiries')->where('status', 'new')->count(),
+            'trials' => DB::table('marketing_site_enquiries')->where('request_type', 'private_trial')->count(),
             'total' => DB::table('marketing_site_enquiries')->count(),
             'plans' => DB::table('marketing_site_content')->where('kind', 'plan')->where('active', true)->count(),
         ];
@@ -141,9 +142,9 @@ class MarketingAdminController
         $rows = DB::table('marketing_site_enquiries')->orderByDesc('id')->cursor();
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['ID', 'Name', 'Business', 'Email', 'Phone', 'Team size', 'Workplaces', 'Message', 'Status', 'Created at UTC']);
+            fputcsv($out, ['ID', 'Request type', 'Name', 'Business', 'Email', 'Phone', 'Team size', 'Workplaces', 'Message', 'Status', 'Created at UTC']);
             foreach ($rows as $row) {
-                $cells = [$row->id, $row->name, $row->company, $row->email, $row->phone, $row->employees, $row->branches, $row->message, $row->status, $row->created_at];
+                $cells = [$row->id, $row->request_type ?? 'enquiry', $row->name, $row->company, $row->email, $row->phone, $row->employees, $row->branches, $row->message, $row->status, $row->created_at];
                 fputcsv($out, array_map(static function ($value) {
                     $value = (string) $value;
                     return preg_match('/^[\s]*[=+\-@]/', $value) ? "'".$value : $value;

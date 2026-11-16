@@ -7,6 +7,8 @@ $viewerRole = $platform ? 'Super administrator' : ($viewer->role === 'admin' ? '
 $links = $platform ? [
  ['/platform','home','Platform overview',request()->is('platform')],
  ['/platform','building','Clients',request()->is('platform/clients*')],
+ ['/platform/admins','people','Super Admin accounts',request()->is('platform/admins*')],
+ ['/platform/support','people','Employee support',request()->is('platform/support*')],
  ['/platform/website','report','Website content',request()->is('platform/website*')],
  ['/platform/security','shield','Account security',request()->is('platform/security')],
 ] : [

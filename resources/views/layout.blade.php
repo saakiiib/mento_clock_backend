@@ -8,6 +8,9 @@ $links = $platform ? [
  ['/platform','home','Platform overview',request()->is('platform')],
  ['/platform','building','Clients',request()->is('platform/clients*')],
  ['/platform/accounts','building','Client accounts',request()->is('platform/accounts*')],
+ ['/platform/module-requests','report','Module requests',request()->is('platform/module-requests*')],
+ ['/platform/module-guide','report','Module guide',request()->is('platform/module-guide*')],
+ ['/platform/module-catalogue','report','Module pricing',request()->is('platform/module-catalogue*')],
  ['/platform/admins','people','Super Admin accounts',request()->is('platform/admins*')],
  ['/platform/support','people','Employee support',request()->is('platform/support*')],
  ['/platform/trial-requests','report','Trial requests',request()->is('platform/trial-requests*')],
@@ -20,6 +23,7 @@ $links = $platform ? [
  ['/workplaces','shop','Workplaces',request()->is('workplaces','branches*')],
  ['/attendance','clock','Attendance',request()->is('attendance')],
  ['/reports','report','Reports',request()->is('reports*')],
+ ['/modules','building','Plans & modules',request()->is('modules*')],
  ['/leave','clock','Leave management',request()->is('leave*')],
  ['/calendar','report','Holiday calendar',request()->is('calendar*')],
  ['/rota','clock','Rota & shifts',request()->is('rota*')],
@@ -37,6 +41,7 @@ if (!$platform) {
     $requiredModules = ['/people'=>'employee_management','/workplaces'=>'employee_management','/attendance'=>'attendance_tracking','/reports'=>'reports_analytics','/leave'=>'leave_management','/calendar'=>'holiday_calendar','/rota'=>'rota_shifts','/compliance'=>'compliance_tracking','/notices'=>'company_notices','/lifecycle'=>'employee_lifecycle','/reminders'=>'hr_reminders','/reports/hr'=>'hr_reports','/roles'=>'role_permissions','/documents'=>'document_management'];
     $requiredPermissions = ['/people'=>'people.view','/workplaces'=>'people.view','/attendance'=>'attendance.view','/reports'=>'reports.view','/leave'=>'leave.view','/calendar'=>'leave.view','/rota'=>'rota.view','/compliance'=>'compliance.view','/notices'=>'notices.view','/lifecycle'=>'lifecycle.view','/reminders'=>'reminders.view','/reports/hr'=>'reports.view','/roles'=>'roles.manage','/documents'=>'documents.view','/company'=>'organisation.view'];
     $links = array_values(array_filter($links, fn ($link) => (!isset($requiredModules[$link[0]]) || $moduleAccess->enabled((int) $viewer->business_id, $requiredModules[$link[0]])) && (!isset($requiredPermissions[$link[0]]) || app(\App\Services\WorkspacePermissions::class)->has($viewer, $requiredPermissions[$link[0]]))));
+    if ($viewer->role !== 'admin') $links = array_values(array_filter($links, fn ($link) => $link[0] !== '/modules'));
 }
 $pageClass = $platform ? 'platform-page' : (request()->path() === '/' ? 'client-dashboard-page' : 'client-page');
 @endphp

@@ -197,7 +197,7 @@ class ClientAccountController
 
     private function syncModules(int $businessId, array $requestedCodes): void
     {
-        $codes = array_values(array_unique([...$requestedCodes, ...DB::table('modules')->where('is_core', true)->pluck('code')->all()]));
+        $codes = array_values(array_unique([...$requestedCodes, ...DB::table('modules')->where('is_core', true)->pluck('code')->all(), 'reports_analytics']));
         $actor = Auth::guard('platform')->id(); $now = now('UTC');
         foreach (DB::table('modules')->where('available', true)->get(['id', 'code']) as $module) {
             $key = ['business_id' => $businessId, 'module_id' => $module->id];

@@ -9,6 +9,8 @@ document.querySelectorAll('[data-password-toggle]').forEach(button=>button.addEv
  input.type=visible?'text':'password';button.setAttribute('aria-pressed',String(visible));button.setAttribute('aria-label',visible?'Hide password':'Show password');
 }));
 document.querySelectorAll('[data-confirm]').forEach(form=>form.addEventListener('submit',event=>{if(!confirm(form.dataset.confirm))event.preventDefault();}));
+document.querySelectorAll('.module-request-actions form').forEach(form=>form.addEventListener('submit',()=>{const button=form.querySelector('button');if(button){button.disabled=true;button.textContent='Sending request…';}}));
+(()=>{const input=document.querySelector('[data-module-guide-search]');if(!input)return;const cards=[...document.querySelectorAll('[data-module-guide-card]')],count=document.querySelector('[data-module-guide-count]');const filter=()=>{const term=input.value.trim().toLocaleLowerCase();let visible=0;cards.forEach(card=>{const match=card.textContent.toLocaleLowerCase().includes(term);card.hidden=!match;if(match)visible++;});if(count)count.textContent=`${visible} module${visible===1?'':'s'}`;};input.addEventListener('input',filter);})();
 document.querySelectorAll('[data-change-save]').forEach(form=>{
  const button=form.querySelector('[data-change-save-button]');
  if(!button)return;

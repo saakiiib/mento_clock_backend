@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
-use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,ClientAccountController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController};
+use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,ClientAccountController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController,ClientModuleRequestController,PlatformModuleController};
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -36,6 +36,8 @@ Route::post('/trial-request',[MarketingSiteController::class,'trialRequest'])->m
 Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');
 Route::middleware(['auth','active.business','workspace.access'])->group(function(){
+ Route::get('/modules',[ClientModuleRequestController::class,'index']);
+ Route::post('/modules/{moduleId}/request',[ClientModuleRequestController::class,'store'])->whereNumber('moduleId')->middleware('throttle:10,1');
  Route::post('/business/select',[AdminController::class,'selectBusiness']);
  Route::get('/employees/create',[AdminController::class,'createEmployee'])->middleware(['module.enabled:employee_management','role.permission:people.manage']);
  foreach(['people'=>['employee_management','people.view'],'workplaces'=>['employee_management','people.view'],'attendance'=>['attendance_tracking','attendance.view']] as $page=>$rules)Route::get('/'.$page,[AdminController::class,'index'])->middleware(['module.enabled:'.$rules[0],'role.permission:'.$rules[1]]);
@@ -120,6 +122,12 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::post('/admins',[PlatformAdminManagementController::class,'store'])->middleware('throttle:5,1');
  Route::post('/admins/{adminId}',[PlatformAdminManagementController::class,'update'])->whereNumber('adminId')->middleware('throttle:10,1');
  Route::get('/support',[PlatformSupportController::class,'index']);
+ Route::get('/module-catalogue',[PlatformModuleController::class,'catalogue']);
+ Route::get('/module-guide',[PlatformModuleController::class,'guide']);
+ Route::post('/module-catalogue/core-plan',[PlatformModuleController::class,'updateCorePlan']);
+ Route::post('/module-catalogue/{moduleId}',[PlatformModuleController::class,'updatePrice'])->whereNumber('moduleId');
+ Route::get('/module-requests',[PlatformModuleController::class,'requests']);
+ Route::post('/module-requests/{requestId}',[PlatformModuleController::class,'review'])->whereNumber('requestId');
  Route::get('/trial-requests',[MarketingAdminController::class,'trialRequests']);
  Route::get('/trial-requests/export',[MarketingAdminController::class,'exportTrialRequests']);
  Route::post('/trial-requests/{id}',[MarketingAdminController::class,'updateTrialRequest'])->whereNumber('id');

@@ -14,6 +14,11 @@
         $price = $module->monthly_price_pence;
         $priceText = $price === null ? 'Price on request' : '£'.number_format(($price / 100) * ($module->price_basis === 'per_employee' ? max(1, $activeEmployees) : 1), 2).'/month';
         $basisText = $module->price_basis === 'per_employee' ? 'per active employee' : 'per business';
+        $entitlement = $entitlements->get($module->id);
+        $isTrial = $isEnabled && $entitlement !== null && $entitlement->entitlement_type === 'trial';
+        $trialEnds = $entitlement !== null && $entitlement->ends_at
+            ? \Illuminate\Support\Carbon::parse($entitlement->ends_at)->timezone('Europe/London')->format('d M Y')
+            : null;
     @endphp
     <article class="card module-shop-card">
         <div class="module-shop-main"><div><span class="eyebrow">{{$inCorePlan ? 'CORE PLAN' : 'MODULE'}}</span><h3>{{$module->name}}</h3><p>{{$module->description}}</p></div><strong class="module-price">{{$inCorePlan ? 'Included' : $priceText}}</strong></div>
@@ -35,7 +40,9 @@
                 <small>Checkout is not enabled yet. We’ll confirm the agreement before charging or activating access.</small>
             @endif
             @if($latest && !$isPending && !$isEnabled)<span class="caption">Last request: {{ucfirst($latest->status)}}@if($latest->review_note) · {{$latest->review_note}}@endif</span>@endif
-            @if($isEnabled && $entitlements->get($module->id)?->entitlement_type === 'trial')<span class="caption">Trial access@if($entitlements->get($module->id)?->ends_at) · ends {{\Illuminate\Support\Carbon::parse($entitlements->get($module->id)->ends_at)->timezone('Europe/London')->format('d M Y')}}@endif</span>@endif
+            @if($isTrial)
+                <span class="caption">Trial access{{ $trialEnds ? ' · ends '.$trialEnds : '' }}</span>
+            @endif
         </div>
     </article>
 @endforeach

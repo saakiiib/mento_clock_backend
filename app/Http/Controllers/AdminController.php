@@ -221,8 +221,8 @@ class AdminController {
   if(!empty($v['employee_document']))$this->requireEmployeeDocumentUploadAccess($r,$id);
   $document=$v['employee_document']??null;$documentPath=null;$branchIds=array_values(array_unique($v['branches']??[]));
   try{DB::transaction(function()use($id,$v,$payload,$r,$document,$branchIds,&$documentPath){
-   DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$branchIds);
-   $u=User::create([...$payload,'password'=>$v['password'],'business_id'=>$id,'role'=>'employee','active'=>true]);
+   $business=DB::table('businesses')->where('id',$id)->lockForUpdate()->firstOrFail();$this->capacity->ensureEmployeeAssignments($id,$branchIds);
+   $u=User::create([...$payload,'password'=>$v['password'],'business_id'=>$id,'client_account_id'=>$business->client_account_id,'role'=>'employee','active'=>true]);
    foreach($branchIds as $b)DB::table('employee_branches')->insert(['business_id'=>$id,'user_id'=>$u->id,'branch_id'=>$b]);
    if($document){$documentPath=$document->store("employee-documents/{$id}/{$u->id}",'local');$this->saveEmployeeDocument($r,$id,(int)$u->id,$v,$document,$documentPath);}
    if(app(\App\Services\ModuleAccess::class)->enabled($id,'employee_lifecycle'))$this->lifecycle->open($id,(int)$u->id,'onboarding',$v['employment_start_date']??null,(int)$r->user()->id);

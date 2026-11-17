@@ -41,6 +41,9 @@ class PlatformSupportController
     {
         $employee = User::where('role', 'employee')->findOrFail($employeeId);
         $business = DB::table('businesses')->where('id', $employee->business_id)->firstOrFail();
+        // Older employee rows may not have client_account_id set. The owning
+        // business is the source of truth for the parent client account.
+        $clientAccountId = $business->client_account_id ? (int) $business->client_account_id : null;
         $branches = DB::table('employee_branches as eb')->join('branches as b', function ($join) use ($employee) {
             $join->on('b.id', '=', 'eb.branch_id')->where('b.business_id', '=', $employee->business_id);
         })->where('eb.business_id', $employee->business_id)->where('eb.user_id', $employee->id)
@@ -50,8 +53,8 @@ class PlatformSupportController
             ->orderByDesc('a.clock_in')->limit(25)->get(['a.*', 'b.name as branch_name']);
         $destinationBusinesses = collect();
         $destinationBranches = collect();
-        if ($employee->client_account_id) {
-            $destinationBusinesses = DB::table('businesses')->where('client_account_id', $employee->client_account_id)
+        if ($clientAccountId) {
+            $destinationBusinesses = DB::table('businesses')->where('client_account_id', $clientAccountId)
                 ->where('active', true)->where('id', '!=', $employee->business_id)->orderBy('name')->get(['id', 'name']);
             $destinationBranches = DB::table('branches')->whereIn('business_id', $destinationBusinesses->pluck('id'))
                 ->where('active', true)->orderBy('name')->get(['id', 'business_id', 'name']);
@@ -63,23 +66,24 @@ class PlatformSupportController
     public function transferEmployee(Request $request, int $employeeId)
     {
         $employee = User::where('role', 'employee')->findOrFail($employeeId);
-        abort_unless($employee->client_account_id, 422, 'This employee is not linked to a multi-business client account.');
+        $sourceBusinessId = (int) DB::table('users')->where('id', $employee->id)->value('business_id');
+        $clientAccountId = DB::table('businesses')->where('id', $sourceBusinessId)->value('client_account_id');
+        abort_unless($clientAccountId, 422, 'This employee’s business is not linked to a client account.');
+        $clientAccountId = (int) $clientAccountId;
         $values = $request->validate([
             'destination_business_id' => ['required', 'integer', Rule::exists('businesses', 'id')->where(fn ($query) =>
-                $query->where('client_account_id', $employee->client_account_id)->where('active', true))],
+                $query->where('client_account_id', $clientAccountId)->where('active', true))],
             'branch_ids' => 'required|array|min:1',
             'branch_ids.*' => ['required', 'integer', Rule::exists('branches', 'id')->where('business_id', (int) $request->input('destination_business_id'))->where('active', true)],
             'client_contact' => 'required|string|min:2|max:120',
             'client_confirmed' => 'accepted',
         ]);
-        $sourceBusinessId = (int) DB::table('users')->where('id', $employee->id)->value('business_id');
         $destinationBusinessId = (int) $values['destination_business_id'];
         abort_if($sourceBusinessId === $destinationBusinessId, 422, 'Choose a different business in the same client account.');
         $branchIds = array_values(array_unique(array_map('intval', $values['branch_ids'])));
         $oldEmail = $employee->email;
-        $destinationUserId = DB::transaction(function () use ($employee, $sourceBusinessId, $destinationBusinessId, $branchIds, $values, $oldEmail) {
+        $destinationUserId = DB::transaction(function () use ($employee, $sourceBusinessId, $destinationBusinessId, $branchIds, $values, $oldEmail, $clientAccountId) {
             $lockedBusinesses = DB::table('businesses')->whereIn('id', [$sourceBusinessId, $destinationBusinessId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-            $clientAccountId = (int) $employee->client_account_id;
             abort_unless($lockedBusinesses->count() === 2
                 && (int) $lockedBusinesses[$sourceBusinessId]->client_account_id === $clientAccountId
                 && (int) $lockedBusinesses[$destinationBusinessId]->client_account_id === $clientAccountId
@@ -101,11 +105,12 @@ class PlatformSupportController
             unset($raw['id']);
             $now = now('UTC');
             DB::table('users')->where('id', $current->id)->update([
+                'client_account_id' => $clientAccountId,
                 'email' => $archiveEmail, 'active' => false, 'remember_token' => null, 'updated_at' => $now,
             ]);
             $newUser = array_replace($raw, [
                 'business_id' => $destinationBusinessId,
-                'client_account_id' => $current->client_account_id,
+                'client_account_id' => $clientAccountId,
                 'business_role_id' => null,
                 'email' => $oldEmail,
                 'active' => (bool) $current->active,

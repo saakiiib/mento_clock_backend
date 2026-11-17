@@ -97,10 +97,11 @@ class ClientApiController
         ]);
         $branchIds = array_values(array_unique($v['branches'] ?? []));
         $employee = DB::transaction(function () use ($businessId, $v, $branchIds) {
-            DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            $business = DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
             $this->capacity->ensureEmployeeAssignments($businessId, $branchIds);
             $employee = User::create([
-                'business_id' => $businessId, 'name' => $v['name'], 'email' => $v['email'],
+                'business_id' => $businessId, 'client_account_id' => $business->client_account_id,
+                'name' => $v['name'], 'email' => $v['email'],
                 'password' => $v['password'], 'phone' => $v['phone'] ?? null,
                 'employee_code' => $v['employee_code'] ?? null, 'job_title' => $v['job_title'] ?? null,
                 'employment_start_date' => $v['employment_start_date'] ?? null,

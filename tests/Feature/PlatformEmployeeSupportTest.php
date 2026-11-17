@@ -141,7 +141,6 @@ class PlatformEmployeeSupportTest extends TestCase
             'active' => true, 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('businesses')->where('id', $sourceBusinessId)->update(['client_account_id' => $accountId]);
-        DB::table('users')->where('id', $employee->id)->update(['client_account_id' => $accountId]);
         $destinationBusinessId = DB::table('businesses')->insertGetId([
             'client_account_id' => $accountId, 'name' => 'Fw Sushi Bar Ltd', 'timezone' => 'Europe/London',
             'active' => true, 'created_at' => now(), 'updated_at' => now(),
@@ -158,13 +157,18 @@ class PlatformEmployeeSupportTest extends TestCase
         ]);
         $this->supportAdmin();
 
+        // Legacy employee rows may not have the new client_account_id column
+        // populated even though the owning business is correctly linked.
+        $this->get('/platform/support/employees/'.$employee->id)
+            ->assertOk()->assertSee('Fw Sushi Bar Ltd');
+
         $this->post('/platform/support/employees/'.$employee->id.'/transfer', [
             'destination_business_id' => $destinationBusinessId,
             'branch_ids' => [$destinationBranchId],
             'client_contact' => 'Raju, business owner', 'client_confirmed' => '1',
         ])->assertRedirect()->assertSessionHas('status');
 
-        $this->assertDatabaseHas('users', ['id' => $employee->id, 'active' => 0, 'business_id' => $sourceBusinessId]);
+        $this->assertDatabaseHas('users', ['id' => $employee->id, 'active' => 0, 'business_id' => $sourceBusinessId, 'client_account_id' => $accountId]);
         $this->assertDatabaseHas('users', ['email' => 'alex@example.test', 'business_id' => $destinationBusinessId, 'client_account_id' => $accountId]);
         $destinationEmployee = User::where('email', 'alex@example.test')->firstOrFail();
         $this->assertTrue(Hash::check('employee-password-123', $destinationEmployee->password));

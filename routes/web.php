@@ -11,10 +11,14 @@ Route::post('/reset-password',[PasswordController::class,'reset'])->middleware('
 Route::get('/',function(Request $request){
  if(Auth::guard('web')->check()){
   $user=Auth::guard('web')->user();
-  if($user->role==='admin' && $user->client_account_id){
+  $clientAccountId=$user->client_account_id?:\Illuminate\Support\Facades\DB::table('businesses')->where('id',(int)$user->getRawOriginal('business_id'))->value('client_account_id');
+  if($user->role==='admin' && $clientAccountId){
+   abort_unless(\Illuminate\Support\Facades\DB::table('client_accounts')->where('id',$clientAccountId)->where('active',true)->exists(),403,'This client account is suspended. Please contact Mento Software.');
    $selected=(int)$request->session()->get('active_business_id',$user->getRawOriginal('business_id'));
-   $allowed=\Illuminate\Support\Facades\DB::table('businesses')->where('id',$selected)->where('client_account_id',$user->client_account_id)->where('active',true)->exists();
-   if(!$allowed){$selected=(int)$user->getRawOriginal('business_id');$request->session()->forget('active_business_id');}
+   $business=\Illuminate\Support\Facades\DB::table('businesses')->where('id',$selected)->where('client_account_id',$clientAccountId)->where('active',true)->first();
+   if(!$business){$business=\Illuminate\Support\Facades\DB::table('businesses')->where('client_account_id',$clientAccountId)->where('active',true)->orderBy('id')->first();}
+   abort_unless($business,403,'No active business is available to this client account.');
+   $selected=(int)$business->id;$request->session()->put('active_business_id',$selected);
    $request->attributes->set('active_business_id',$selected);
   }
   return app(AdminController::class)->index($request);
@@ -109,7 +113,9 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::get('/accounts/create',[ClientAccountController::class,'create']);
  Route::post('/accounts',[ClientAccountController::class,'store']);
  Route::get('/accounts/{id}',[ClientAccountController::class,'show'])->whereNumber('id');
+ Route::post('/accounts/{id}/status',[ClientAccountController::class,'status'])->whereNumber('id');
  Route::post('/accounts/{id}/businesses',[ClientAccountController::class,'addBusiness'])->whereNumber('id');
+ Route::post('/accounts/{accountId}/businesses/{businessId}/status',[ClientAccountController::class,'businessStatus'])->whereNumber('accountId')->whereNumber('businessId');
  Route::get('/admins',[PlatformAdminManagementController::class,'index']);
  Route::post('/admins',[PlatformAdminManagementController::class,'store'])->middleware('throttle:5,1');
  Route::post('/admins/{adminId}',[PlatformAdminManagementController::class,'update'])->whereNumber('adminId')->middleware('throttle:10,1');
@@ -135,6 +141,7 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::get('/clients/{id}',[PlatformController::class,'show'])->whereNumber('id');
  Route::post('/clients/{id}',[PlatformController::class,'update'])->whereNumber('id');
  Route::post('/clients/{id}/branches/{branchId}/capacity',[PlatformController::class,'branchCapacity'])->whereNumber('id')->whereNumber('branchId');
+ Route::post('/clients/{id}/branches/{branchId}/status',[PlatformController::class,'branchStatus'])->whereNumber('id')->whereNumber('branchId');
  Route::get('/website',[MarketingAdminController::class,'index']);
  Route::post('/website/settings',[MarketingAdminController::class,'updateSettings']);
  Route::post('/website/content',[MarketingAdminController::class,'saveContent']);

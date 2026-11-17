@@ -146,6 +146,106 @@ class PlatformPortalTest extends TestCase
         $this->assertDatabaseHas('businesses',['id'=>$client->business_id,'active'=>true]);
     }
 
+    public function test_super_admin_can_deactivate_and_reactivate_a_workplace_without_deleting_history(): void
+    {
+        $client = $this->client('Workplace Status Client');
+        $branchId = DB::table('branches')->insertGetId([
+            'business_id' => $client->business_id, 'name' => 'Flitwick', 'address' => 'Flitwick, MK45',
+            'latitude' => 52.0, 'longitude' => -0.5, 'radius_m' => 100, 'active' => true,
+            'location_required' => false,
+        ]);
+        $employee = User::create([
+            'business_id' => $client->business_id, 'name' => 'Worker', 'email' => 'worker-workplace@example.test',
+            'password' => 'employee-password-123', 'role' => 'employee', 'active' => true,
+        ]);
+        DB::table('employee_branches')->insert(['business_id' => $client->business_id, 'user_id' => $employee->id, 'branch_id' => $branchId]);
+        $attendanceId = DB::table('attendance_records')->insertGetId([
+            'business_id' => $client->business_id, 'user_id' => $employee->id, 'branch_id' => $branchId,
+            'clock_in' => '2026-11-10 09:00:00', 'clock_out' => null,
+            'in_lat' => null, 'in_lng' => null, 'out_lat' => null, 'out_lng' => null,
+            'finalized_at' => null, 'finalized_by' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->platform();
+
+        $this->post('/platform/clients/'.$client->business_id.'/branches/'.$branchId.'/status', ['active' => 0])->assertUnprocessable();
+        DB::table('attendance_records')->where('id', $attendanceId)->update(['clock_out' => '2026-11-10 17:00:00']);
+        $this->post('/platform/clients/'.$client->business_id.'/branches/'.$branchId.'/status', ['active' => 0])->assertRedirect()->assertSessionHas('status');
+
+        $this->assertDatabaseHas('branches', ['id' => $branchId, 'active' => false]);
+        $this->assertDatabaseHas('employee_branches', ['business_id' => $client->business_id, 'user_id' => $employee->id, 'branch_id' => $branchId]);
+        $this->assertDatabaseHas('attendance_records', ['id' => $attendanceId, 'branch_id' => $branchId]);
+        $this->post('/platform/clients/'.$client->business_id.'/branches/'.$branchId.'/status', ['active' => 1])->assertRedirect();
+        $this->assertDatabaseHas('branches', ['id' => $branchId, 'active' => true]);
+    }
+
+    public function test_super_admin_can_suspend_a_client_account_without_deleting_businesses(): void
+    {
+        $accountId = DB::table('client_accounts')->insertGetId([
+            'name' => 'Grouped Client', 'contact_name' => 'Owner', 'contact_email' => 'owner-grouped@example.test',
+            'active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $businessId = DB::table('businesses')->insertGetId([
+            'client_account_id' => $accountId, 'name' => 'Grouped Business', 'timezone' => 'Europe/London',
+            'active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $admin = User::create([
+            'business_id' => $businessId, 'client_account_id' => $accountId, 'name' => 'Group Admin',
+            'email' => 'group-admin@example.test', 'password' => 'client-password-123', 'role' => 'admin', 'active' => true,
+        ]);
+        $admin->createToken('client-mobile');
+        DB::table('sessions')->insert(['id' => 'group-client-session', 'user_id' => $admin->id, 'payload' => 'test', 'last_activity' => time()]);
+        $this->platform();
+
+        $this->post('/platform/accounts/'.$accountId.'/status', ['active' => 0])->assertRedirect()->assertSessionHas('status');
+        $this->assertDatabaseHas('client_accounts', ['id' => $accountId, 'active' => false]);
+        $this->assertDatabaseHas('businesses', ['id' => $businessId, 'active' => true]);
+        $this->assertDatabaseHas('users', ['id' => $admin->id]);
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+        $this->assertDatabaseMissing('sessions', ['id' => 'group-client-session']);
+        $this->actingAs($admin->fresh(), 'web')->get('/')->assertForbidden();
+
+        $this->platform();
+        $this->post('/platform/accounts/'.$accountId.'/status', ['active' => 1])->assertRedirect();
+        $this->assertDatabaseHas('client_accounts', ['id' => $accountId, 'active' => true]);
+        $this->actingAs($admin->fresh(), 'web')->get('/')->assertOk();
+    }
+
+    public function test_business_status_inside_client_account_is_scoped_to_that_business(): void
+    {
+        $accountId = DB::table('client_accounts')->insertGetId([
+            'name' => 'Two Business Client', 'contact_name' => 'Owner', 'contact_email' => 'two-business@example.test',
+            'active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $businessIds = [];
+        foreach (['Business One', 'Business Two'] as $name) {
+            $businessIds[] = DB::table('businesses')->insertGetId([
+                'client_account_id' => $accountId, 'name' => $name, 'timezone' => 'Europe/London',
+                'active' => true, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        $admin = User::create([
+            'business_id' => $businessIds[0], 'client_account_id' => $accountId, 'name' => 'Group Admin',
+            'email' => 'two-business-admin@example.test', 'password' => 'client-password-123', 'role' => 'admin', 'active' => true,
+        ]);
+        $employee = User::create([
+            'business_id' => $businessIds[0], 'client_account_id' => $accountId, 'name' => 'Worker',
+            'email' => 'two-business-worker@example.test', 'password' => 'employee-password-123', 'role' => 'employee', 'active' => true,
+        ]);
+        $admin->createToken('client-mobile');
+        $employee->createToken('employee-mobile');
+        $this->platform();
+
+        $this->post('/platform/accounts/'.$accountId.'/businesses/'.$businessIds[0].'/status', ['active' => 0])
+            ->assertRedirect()->assertSessionHas('status');
+        $this->assertDatabaseHas('businesses', ['id' => $businessIds[0], 'active' => false]);
+        $this->assertDatabaseHas('businesses', ['id' => $businessIds[1], 'active' => true]);
+        $this->assertDatabaseHas('personal_access_tokens', ['tokenable_id' => $admin->id]);
+        $this->assertDatabaseMissing('personal_access_tokens', ['tokenable_id' => $employee->id]);
+
+        $this->actingAs($admin->fresh(), 'sanctum')->withHeader('X-Business-ID', (string) $businessIds[1])
+            ->getJson('/api/manager/businesses')->assertOk()->assertJsonPath('data.0.id', $businessIds[1]);
+    }
+
     public function test_admin_update_is_scoped_and_last_admin_cannot_be_disabled(): void
     {
         $a=$this->client('Client A');$b=$this->client('Client B');$this->platform();

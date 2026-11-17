@@ -99,6 +99,74 @@ class ClientAccountController
         return view('platform.accounts.show', compact('account', 'businesses', 'admins', 'modules'));
     }
 
+    /** Suspend/reactivate every business and user under one client login. */
+    public function status(Request $request, int $id)
+    {
+        $values = $request->validate(['active' => 'required|boolean']);
+        DB::transaction(function () use ($values, $id) {
+            $account = DB::table('client_accounts')->where('id', $id)->lockForUpdate()->firstOrFail();
+            $businessIds = DB::table('businesses')->where('client_account_id', $id)->orderBy('id')->lockForUpdate()->pluck('id');
+            $active = (bool) $values['active'];
+            if (!$active && $businessIds->isNotEmpty()) {
+                $openShifts = DB::table('attendance_records')->whereIn('business_id', $businessIds)->whereNull('clock_out')->count();
+                abort_if($openShifts > 0, 422, 'This client has employees still clocked in. Resolve the open attendance records before suspending the client account.');
+            }
+
+            DB::table('client_accounts')->where('id', $id)->update(['active' => $active, 'updated_at' => now('UTC')]);
+            $userIds = User::where(fn ($query) => $query->where('client_account_id', $id)
+                ->orWhereIn('business_id', $businessIds))->pluck('id');
+            if (!$active && $userIds->isNotEmpty()) {
+                DB::table('personal_access_tokens')->where('tokenable_type', (new User)->getMorphClass())
+                    ->whereIn('tokenable_id', $userIds)->delete();
+                DB::table('sessions')->whereIn('user_id', $userIds)->delete();
+            }
+            foreach ($businessIds as $businessId) {
+                $this->audit((int) $businessId, $active ? 'Client account activated' : 'Client account suspended', [
+                    'client_account_id' => $id, 'client_name' => $account->name,
+                    'all_businesses_affected' => true, 'records_preserved' => true,
+                ]);
+            }
+        });
+
+        return back()->with('status', $values['active']
+            ? 'Client account activated. Any businesses suspended separately must still be activated individually.'
+            : 'Client account suspended. All linked businesses are inaccessible, sessions were revoked and records were preserved.');
+    }
+
+    /** Toggle one business while leaving the other businesses under the client login available. */
+    public function businessStatus(Request $request, int $accountId, int $businessId)
+    {
+        $values = $request->validate(['active' => 'required|boolean']);
+        DB::transaction(function () use ($values, $accountId, $businessId) {
+            DB::table('client_accounts')->where('id', $accountId)->lockForUpdate()->firstOrFail();
+            $business = DB::table('businesses')->where('client_account_id', $accountId)
+                ->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            $active = (bool) $values['active'];
+            if (!$active) {
+                $openShifts = DB::table('attendance_records')->where('business_id', $businessId)->whereNull('clock_out')->count();
+                abort_if($openShifts > 0, 422, 'This business has employees still clocked in. Resolve the open attendance records before deactivating it.');
+            }
+            DB::table('businesses')->where('id', $businessId)->update(['active' => $active, 'updated_at' => now('UTC')]);
+
+            if (!$active) {
+                $employeeIds = User::where('business_id', $businessId)->where('role', 'employee')->pluck('id');
+                if ($employeeIds->isNotEmpty()) {
+                    DB::table('personal_access_tokens')->where('tokenable_type', (new User)->getMorphClass())
+                        ->whereIn('tokenable_id', $employeeIds)->delete();
+                    DB::table('sessions')->whereIn('user_id', $employeeIds)->delete();
+                }
+            }
+            $this->audit($businessId, $active ? 'Business activated' : 'Business deactivated', [
+                'client_account_id' => $accountId, 'business_name' => $business->name,
+                'records_preserved' => true,
+            ]);
+        });
+
+        return back()->with('status', $values['active']
+            ? 'Business activated. Its client account must also be active for users to sign in.'
+            : 'Business deactivated. Other businesses under this client account remain available; records were preserved.');
+    }
+
     public function addBusiness(Request $request, int $id)
     {
         $account = DB::table('client_accounts')->where('id', $id)->firstOrFail();

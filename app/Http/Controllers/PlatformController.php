@@ -161,6 +161,29 @@ class PlatformController
         return back()->with('status', 'Branch employee limit saved.');
     }
 
+    /** Toggle a workplace without deleting its assignments or historical records. */
+    public function branchStatus(Request $request, int $id, int $branchId)
+    {
+        $values = $request->validate(['active' => 'required|boolean']);
+        DB::transaction(function () use ($request, $values, $id, $branchId) {
+            DB::table('businesses')->where('id', $id)->lockForUpdate()->firstOrFail();
+            $branch = DB::table('branches')->where('business_id', $id)->where('id', $branchId)->lockForUpdate()->firstOrFail();
+            $active = (bool) $values['active'];
+            if (!$active) {
+                $openShifts = DB::table('attendance_records')->where('business_id', $id)
+                    ->where('branch_id', $branchId)->whereNull('clock_out')->count();
+                abort_if($openShifts > 0, 422, 'This workplace has an employee still clocked in. Resolve the open attendance record before deactivating it.');
+            }
+            DB::table('branches')->where('business_id', $id)->where('id', $branchId)
+                ->update(['active' => $active, 'updated_at' => now('UTC')]);
+            $this->audit($id, $active ? 'Workplace activated' : 'Workplace deactivated', [
+                'branch_id' => $branchId, 'branch_name' => $branch->name,
+                'assignments_and_history_preserved' => true, 'actor_id' => Auth::guard('platform')->id(),
+            ]);
+        });
+        return back()->with('status', $values['active'] ? 'Workplace activated. Existing employee assignments and records were preserved.' : 'Workplace deactivated. It can no longer be used for clock-ins; existing employee assignments and records were preserved.');
+    }
+
     private function capacityForBranch(int $businessId, int $branchId): int
     {
         return DB::table('employee_branches as eb')->join('users as u', 'u.id', '=', 'eb.user_id')
@@ -198,15 +221,19 @@ class PlatformController
         $values = $request->validate(['active' => 'required|boolean']);
         DB::transaction(function () use ($values, $id) {
             DB::table('businesses')->where('id', $id)->lockForUpdate()->firstOrFail();
+            if (!$values['active']) {
+                $openShifts = DB::table('attendance_records')->where('business_id', $id)->whereNull('clock_out')->count();
+                abort_if($openShifts > 0, 422, 'This business has employees still clocked in. Resolve the open attendance records before suspending it.');
+            }
             DB::table('businesses')->where('id', $id)->update(['active' => $values['active'], 'updated_at' => now()]);
             if (!$values['active']) {
                 $ids = User::where('business_id', $id)->pluck('id');
                 PersonalAccessToken::where('tokenable_type', (new User)->getMorphClass())->whereIn('tokenable_id', $ids)->delete();
                 DB::table('sessions')->whereIn('user_id', $ids)->delete();
             }
-            $this->audit($id, $values['active'] ? 'Client activated' : 'Client suspended', []);
+            $this->audit($id, $values['active'] ? 'Business activated' : 'Business deactivated', ['records_preserved' => true]);
         });
-        return back()->with('status', $values['active'] ? 'Client access activated.' : 'Client access suspended. Attendance records are preserved.');
+        return back()->with('status', $values['active'] ? 'Business access activated.' : 'Business access deactivated. Attendance records are preserved.');
     }
 
     public function addAdmin(Request $request, int $id)

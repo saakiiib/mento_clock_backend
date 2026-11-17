@@ -23,8 +23,16 @@ class AdminController {
  public function login(Request $r){
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
   if(Auth::guard('web')->attempt([...$v,'active'=>true])){
-   if(!app(\App\Services\WorkspacePermissions::class)->has(Auth::guard('web')->user(),'workspace.access')){Auth::guard('web')->logout();return back()->withErrors(['email'=>'This account has no client-portal access.']);}
-   if(!DB::table('businesses')->where('id',Auth::guard('web')->user()->business_id)->where('active',true)->exists()){Auth::guard('web')->logout();return back()->withErrors(['email'=>'This workspace is paused. Please contact Mento Software.']);}
+   $user=Auth::guard('web')->user();
+   if(!app(\App\Services\WorkspacePermissions::class)->has($user,'workspace.access')){Auth::guard('web')->logout();return back()->withErrors(['email'=>'This account has no client-portal access.']);}
+   $clientAccountId=$user->client_account_id?:DB::table('businesses')->where('id',(int)$user->getRawOriginal('business_id'))->value('client_account_id');
+   if($clientAccountId){
+    $accountActive=DB::table('client_accounts')->where('id',$clientAccountId)->where('active',true)->exists();
+    $hasActiveBusiness=DB::table('businesses')->where('client_account_id',$clientAccountId)->where('active',true)->exists();
+    if(!$accountActive || !$hasActiveBusiness){Auth::guard('web')->logout();return back()->withErrors(['email'=>'This client account has no active business access. Please contact Mento Software.']);}
+   }elseif(!DB::table('businesses')->where('id',$user->business_id)->where('active',true)->exists()){
+    Auth::guard('web')->logout();return back()->withErrors(['email'=>'This workspace is paused. Please contact Mento Software.']);
+   }
    Auth::guard('platform')->logout();$r->session()->forget('platform_version');$r->session()->regenerate();return redirect('/');
   }
   if(Auth::guard('platform')->attempt([...$v,'active'=>true])){

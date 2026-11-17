@@ -13,7 +13,13 @@ class ClockController {
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
   $u=User::where('email',$v['email'])->first();
   abort_unless($u && Hash::check($v['password'],$u->password) && $u->active,401,'Invalid credentials or inactive account.');
-  $b=DB::table('businesses')->where('id',$u->business_id)->where('active',true)->first();abort_unless($b,403,'Business is inactive.');
+  $clientAccountId=$u->client_account_id?:DB::table('businesses')->where('id',(int)$u->getRawOriginal('business_id'))->value('client_account_id');
+  if($clientAccountId){
+   abort_unless(DB::table('client_accounts')->where('id',$clientAccountId)->where('active',true)->exists(),403,'Client account is inactive.');
+   $b=DB::table('businesses')->where('client_account_id',$clientAccountId)->where('active',true)->orderByRaw('CASE WHEN id = ? THEN 0 ELSE 1 END',[$u->getRawOriginal('business_id')])->orderBy('id')->first();
+  }else{$b=DB::table('businesses')->where('id',$u->business_id)->where('active',true)->first();}
+  abort_unless($b,403,'Business is inactive.');
+  if($u->role==='admin' && $clientAccountId)$r->attributes->set('active_business_id',(int)$b->id);
   $abilities = $u->role === 'admin' ? ['*'] : ['attendance'];
   $token=$u->createToken('mentoclock-mobile',$abilities,now()->addDays(30))->plainTextToken;
   Log::info('User logged in', ['user_id' => $u->id, 'business_id' => $u->business_id, 'email' => $u->email, 'ip' => $r->ip()]);

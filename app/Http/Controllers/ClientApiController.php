@@ -50,6 +50,23 @@ class ClientApiController
         ]);
     }
 
+    public function businesses(Request $request)
+    {
+        $user = $request->user();
+        $rows = $user->client_account_id
+            ? DB::table('businesses as b')->leftJoin('client_profiles as p', 'p.business_id', '=', 'b.id')
+                ->where('b.client_account_id', $user->client_account_id)->where('b.active', true)
+                ->select('b.id', 'b.name', 'b.timezone', 'p.branch_limit', 'p.employees_per_branch_limit')->orderBy('b.name')->get()
+            : collect([DB::table('businesses')->where('id', $this->businessId($request))->first()])->filter();
+        return response()->json(['data' => $rows->map(fn ($business) => [
+            'id' => (int) $business->id, 'name' => $business->name, 'timezone' => $business->timezone,
+            'workspace_limit' => (int) ($business->branch_limit ?? 0),
+            'workspaces_used' => DB::table('branches')->where('business_id', $business->id)->where('active', true)->count(),
+            'employees_per_workspace_limit' => (int) ($business->employees_per_branch_limit ?? 0),
+            'selected' => (int) $business->id === $this->businessId($request),
+        ])->values()]);
+    }
+
     public function employees(Request $request)
     {
         $businessId = $this->businessId($request);

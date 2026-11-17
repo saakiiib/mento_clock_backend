@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
-use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController};
+use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,ClientAccountController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController};
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -9,7 +9,16 @@ Route::post('/forgot-password',[PasswordController::class,'forgot'])->middleware
 Route::get('/reset-password/{token}',[PasswordController::class,'form'])->name('password.reset');
 Route::post('/reset-password',[PasswordController::class,'reset'])->middleware('throttle:5,1');
 Route::get('/',function(Request $request){
- if(Auth::guard('web')->check())return app(AdminController::class)->index($request);
+ if(Auth::guard('web')->check()){
+  $user=Auth::guard('web')->user();
+  if($user->role==='admin' && $user->client_account_id){
+   $selected=(int)$request->session()->get('active_business_id',$user->getRawOriginal('business_id'));
+   $allowed=\Illuminate\Support\Facades\DB::table('businesses')->where('id',$selected)->where('client_account_id',$user->client_account_id)->where('active',true)->exists();
+   if(!$allowed){$selected=(int)$user->getRawOriginal('business_id');$request->session()->forget('active_business_id');}
+   $request->attributes->set('active_business_id',$selected);
+  }
+  return app(AdminController::class)->index($request);
+ }
  return app(MarketingSiteController::class)->index($request);
 });
 Route::get('/privacy',[MarketingSiteController::class,'legal'])->defaults('page','privacy');
@@ -23,6 +32,7 @@ Route::post('/trial-request',[MarketingSiteController::class,'trialRequest'])->m
 Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');
 Route::middleware(['auth','active.business','workspace.access'])->group(function(){
+ Route::post('/business/select',[AdminController::class,'selectBusiness']);
  Route::get('/employees/create',[AdminController::class,'createEmployee'])->middleware(['module.enabled:employee_management','role.permission:people.manage']);
  foreach(['people'=>['employee_management','people.view'],'workplaces'=>['employee_management','people.view'],'attendance'=>['attendance_tracking','attendance.view']] as $page=>$rules)Route::get('/'.$page,[AdminController::class,'index'])->middleware(['module.enabled:'.$rules[0],'role.permission:'.$rules[1]]);
  Route::get('/company',[OrganisationProfileController::class,'index'])->middleware('role.permission:organisation.view');
@@ -95,6 +105,11 @@ Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalid
 // Platform accounts use an independent guard and have no employee/attendance API access.
 Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::get('/',[PlatformController::class,'index']);
+ Route::get('/accounts',[ClientAccountController::class,'index']);
+ Route::get('/accounts/create',[ClientAccountController::class,'create']);
+ Route::post('/accounts',[ClientAccountController::class,'store']);
+ Route::get('/accounts/{id}',[ClientAccountController::class,'show'])->whereNumber('id');
+ Route::post('/accounts/{id}/businesses',[ClientAccountController::class,'addBusiness'])->whereNumber('id');
  Route::get('/admins',[PlatformAdminManagementController::class,'index']);
  Route::post('/admins',[PlatformAdminManagementController::class,'store'])->middleware('throttle:5,1');
  Route::post('/admins/{adminId}',[PlatformAdminManagementController::class,'update'])->whereNumber('adminId')->middleware('throttle:10,1');

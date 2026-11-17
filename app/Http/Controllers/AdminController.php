@@ -12,6 +12,14 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 class AdminController {
  public function __construct(private BusinessCapacity $capacity, private EmployeeLifecycle $lifecycle) {}
+ public function selectBusiness(Request $r){
+  $u=$r->user();abort_unless($u && $u->role==='admin' && $u->client_account_id,403);
+  $v=$r->validate(['business_id'=>'required|integer']);
+  $business=DB::table('businesses')->where('id',$v['business_id'])->where('client_account_id',$u->client_account_id)->where('active',true)->first();
+  abort_unless($business,404,'Business not found in this client account.');
+  $r->session()->put('active_business_id',(int)$business->id);
+  return redirect('/')->with('status','Switched to '.$business->name.'.');
+ }
  public function login(Request $r){
   $v=$r->validate(['email'=>'required|email','password'=>'required|string']);
   if(Auth::guard('web')->attempt([...$v,'active'=>true])){

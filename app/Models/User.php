@@ -6,7 +6,7 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable {
  use Notifiable, HasApiTokens;
  protected $fillable=[
-  'business_id','name','email','password','role','active','phone','employee_code','job_title',
+  'business_id','client_account_id','name','email','password','role','active','phone','employee_code','job_title',
   'employment_start_date','emergency_contact_name','emergency_contact_phone','first_name',
   'middle_name','last_name','gender','national_insurance_number','date_of_birth','marital_status',
   'nationality','home_address_line_1','home_address_line_2','home_city','home_county',
@@ -41,4 +41,15 @@ class User extends Authenticatable {
   'passport_expiry_date'=>'date:Y-m-d','visa_issued_date'=>'date:Y-m-d',
   'visa_expiry_date'=>'date:Y-m-d','cos_start_date'=>'date:Y-m-d','cos_end_date'=>'date:Y-m-d'
  ];}
+
+ // Client administrators may switch between the businesses assigned to their
+ // parent client account. Middleware validates the selected business first.
+ public function getBusinessIdAttribute($value): int
+ {
+  if ($this->role === 'admin' && $this->client_account_id && app()->bound('request')) {
+   $selected = app('request')->attributes->get('active_business_id');
+   if ($selected) return (int) $selected;
+  }
+  return (int) $value;
+ }
 }

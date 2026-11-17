@@ -40,7 +40,8 @@ class ClockController {
    'emergency_contact_relationship'=>$u->emergency_contact_relationship,
    'emergency_contact_phone'=>$u->emergency_contact_phone,'emergency_contact_email'=>$u->emergency_contact_email,
    'emergency_contact_address'=>$u->emergency_contact_address,'role'=>$u->role,
-   'business_name'=>$b->name,'timezone'=>$b->timezone,'branches'=>$branches,
+   'business_name'=>$b->name,'business_id'=>(int)$b->id,'timezone'=>$b->timezone,'branches'=>$branches,
+   'businesses'=>$u->role==='admin' && $u->client_account_id ? DB::table('businesses as b')->leftJoin('client_profiles as p','p.business_id','=','b.id')->where('b.client_account_id',$u->client_account_id)->where('b.active',true)->select('b.id','b.name','b.timezone','p.branch_limit','p.employees_per_branch_limit')->orderBy('b.name')->get()->map(fn($business)=>['id'=>(int)$business->id,'name'=>$business->name,'timezone'=>$business->timezone,'workspace_limit'=>(int)($business->branch_limit??0),'employees_per_workspace_limit'=>(int)($business->employees_per_branch_limit??0)])->values():[], 
    'modules'=>[
     'attendance_tracking'=>$modules->enabled((int)$u->business_id,'attendance_tracking'),
     'leave_management'=>$modules->enabled((int)$u->business_id,'leave_management'),

@@ -1,0 +1,147 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use App\Services\WorkspacePermissions;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\{Auth, DB};
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+
+class ClientAccountController
+{
+    public function index()
+    {
+        $accounts = DB::table('client_accounts as c')->leftJoin('users as u', function ($join) {
+            $join->on('u.client_account_id', '=', 'c.id')->where('u.role', '=', 'admin');
+        })->select('c.*', DB::raw('COUNT(DISTINCT u.id) as administrators_count'))
+            ->selectSub(DB::table('businesses')->selectRaw('COUNT(*)')->whereColumn('client_account_id', 'c.id'), 'businesses_count')
+            ->selectSub(DB::table('businesses as b')->join('branches as w', 'w.business_id', '=', 'b.id')
+                ->selectRaw('COUNT(*)')->whereColumn('b.client_account_id', 'c.id')->where('w.active', true), 'workspaces_count')
+            ->groupBy('c.id')->orderByDesc('c.id')->paginate(20);
+        return view('platform.accounts.index', compact('accounts'));
+    }
+
+    public function create()
+    {
+        $modules = DB::table('modules')->where('available', true)->orderBy('sort_order')->get();
+        return view('platform.accounts.create', compact('modules'));
+    }
+
+    public function store(Request $request)
+    {
+        if (is_string($request->input('admin_email'))) $request->merge(['admin_email' => strtolower(trim($request->input('admin_email')))]);
+        $values = $request->validate([
+            'client_name' => 'required|string|max:160', 'contact_name' => 'required|string|max:100',
+            'contact_email' => 'required|email|max:255', 'contact_phone' => 'nullable|string|max:40',
+            'admin_name' => 'required|string|max:100',
+            'admin_email' => 'required|email|max:255|unique:users,email|unique:platform_admins,email',
+            'password' => ['required', 'string', 'min:12', 'confirmed', function ($attribute, $value, $fail) { if (strlen($value) > 72) $fail('Use at most 72 bytes for the password.'); }],
+            'businesses' => 'required|array|min:1|max:20',
+            'businesses.*.name' => 'required|string|max:100', 'businesses.*.timezone' => 'required|timezone',
+            'businesses.*.workspace_limit' => 'required|integer|min:1|max:500',
+            'businesses.*.employee_limit' => 'required|integer|min:1|max:500',
+            'module_codes' => 'required|array|min:1',
+            'module_codes.*' => [Rule::exists('modules', 'code')->where('available', true)],
+        ]);
+
+        $accountId = DB::transaction(function () use ($values) {
+            $now = now('UTC');
+            $accountId = DB::table('client_accounts')->insertGetId([
+                'name' => $values['client_name'], 'contact_name' => $values['contact_name'],
+                'contact_email' => $values['contact_email'], 'contact_phone' => $values['contact_phone'] ?? null,
+                'active' => true, 'created_at' => $now, 'updated_at' => $now,
+            ]);
+            $businessIds = [];
+            foreach ($values['businesses'] as $businessValues) {
+                $businessId = DB::table('businesses')->insertGetId([
+                    'client_account_id' => $accountId, 'name' => $businessValues['name'],
+                    'timezone' => $businessValues['timezone'], 'active' => true,
+                    'created_at' => $now, 'updated_at' => $now,
+                ]);
+                DB::table('client_profiles')->insert([
+                    'business_id' => $businessId, 'contact_name' => $values['contact_name'],
+                    'contact_email' => $values['contact_email'], 'contact_phone' => $values['contact_phone'] ?? null,
+                    'branch_limit' => (int) $businessValues['workspace_limit'],
+                    'employees_per_branch_limit' => (int) $businessValues['employee_limit'],
+                    'created_at' => $now, 'updated_at' => $now,
+                ]);
+                WorkspacePermissions::seedDefaultRoles($businessId);
+                $this->syncModules($businessId, $values['module_codes']);
+                $businessIds[] = $businessId;
+            }
+
+            $admin = User::create([
+                'business_id' => $businessIds[0], 'client_account_id' => $accountId,
+                'name' => $values['admin_name'], 'email' => $values['admin_email'],
+                'password' => $values['password'], 'role' => 'admin', 'active' => true,
+            ]);
+            foreach ($businessIds as $businessId) $this->audit($businessId, 'Client account and business created', ['client_account_id' => $accountId, 'administrator_id' => $admin->id]);
+            return $accountId;
+        });
+
+        return redirect('/platform/accounts/'.$accountId)->with('status', 'Client account created with its businesses and workspace limits. Share the login securely.');
+    }
+
+    public function show(int $id)
+    {
+        $account = DB::table('client_accounts')->where('id', $id)->firstOrFail();
+        $businesses = DB::table('businesses as b')->leftJoin('client_profiles as p', 'p.business_id', '=', 'b.id')
+            ->where('b.client_account_id', $id)->select('b.*', 'p.branch_limit', 'p.employees_per_branch_limit')
+            ->selectSub(DB::table('branches')->selectRaw('COUNT(*)')->whereColumn('business_id', 'b.id')->where('active', true), 'workspaces_count')
+            ->selectSub(DB::table('users')->selectRaw('COUNT(*)')->whereColumn('business_id', 'b.id')->where('role', 'employee')->where('active', true), 'employees_count')
+            ->orderBy('b.name')->get();
+        $admins = User::where('client_account_id', $id)->where('role', 'admin')->get();
+        return view('platform.accounts.show', compact('account', 'businesses', 'admins'));
+    }
+
+    public function addBusiness(Request $request, int $id)
+    {
+        $account = DB::table('client_accounts')->where('id', $id)->firstOrFail();
+        $values = $request->validate([
+            'name' => 'required|string|max:100', 'timezone' => 'required|timezone',
+            'workspace_limit' => 'required|integer|min:1|max:500', 'employee_limit' => 'required|integer|min:1|max:500',
+        ]);
+        DB::transaction(function () use ($id, $values) {
+            $businessId = DB::table('businesses')->insertGetId([
+                'client_account_id' => $id, 'name' => $values['name'], 'timezone' => $values['timezone'],
+                'active' => true, 'created_at' => now('UTC'), 'updated_at' => now('UTC'),
+            ]);
+            $client = DB::table('client_accounts')->where('id', $id)->first();
+            DB::table('client_profiles')->insert([
+                'business_id' => $businessId, 'contact_name' => $client->contact_name,
+                'contact_email' => $client->contact_email, 'contact_phone' => $client->contact_phone,
+                'branch_limit' => $values['workspace_limit'], 'employees_per_branch_limit' => $values['employee_limit'],
+                'created_at' => now('UTC'), 'updated_at' => now('UTC'),
+            ]);
+            WorkspacePermissions::seedDefaultRoles($businessId);
+            $sourceBusinessId = DB::table('businesses')->where('client_account_id', $id)->where('id', '!=', $businessId)->orderBy('id')->value('id');
+            $codes = $sourceBusinessId ? DB::table('business_modules as bm')->join('modules as m', 'm.id', '=', 'bm.module_id')
+                ->where('bm.business_id', $sourceBusinessId)->where('bm.status', 'active')->pluck('m.code')->all() : [];
+            if (!$codes) $codes = DB::table('modules')->where('is_core', true)->pluck('code')->all();
+            $this->syncModules($businessId, $codes);
+            $this->audit($businessId, 'Business added to client account', ['client_account_id' => $id]);
+        });
+        return back()->with('status', 'Business added with its own workspace and employee limits.');
+    }
+
+    private function syncModules(int $businessId, array $requestedCodes): void
+    {
+        $codes = array_values(array_unique([...$requestedCodes, ...DB::table('modules')->where('is_core', true)->pluck('code')->all()]));
+        $actor = Auth::guard('platform')->id(); $now = now('UTC');
+        foreach (DB::table('modules')->where('available', true)->get(['id', 'code']) as $module) {
+            $key = ['business_id' => $businessId, 'module_id' => $module->id];
+            $value = ['assigned_by' => $actor, 'status' => in_array($module->code, $codes, true) ? 'active' : 'inactive', 'updated_at' => $now];
+            DB::table('business_modules')->updateOrInsert($key, [...$value, 'created_at' => $now]);
+        }
+    }
+
+    private function audit(int $businessId, string $action, array $details): void
+    {
+        DB::table('platform_audit_logs')->insert([
+            'actor_id' => Auth::guard('platform')->id(), 'business_id' => $businessId,
+            'action' => $action, 'details' => json_encode($details, JSON_THROW_ON_ERROR), 'created_at' => now('UTC'),
+        ]);
+    }
+}

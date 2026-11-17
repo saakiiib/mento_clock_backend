@@ -7,6 +7,7 @@ use App\Services\BusinessCapacity;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\{Auth, DB, Password};
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -47,7 +48,179 @@ class PlatformSupportController
         $records = DB::table('attendance_records as a')->join('branches as b', 'b.id', '=', 'a.branch_id')
             ->where('a.business_id', $employee->business_id)->where('a.user_id', $employee->id)
             ->orderByDesc('a.clock_in')->limit(25)->get(['a.*', 'b.name as branch_name']);
-        return view('platform.support.employee', compact('employee', 'business', 'branches', 'records'));
+        $destinationBusinesses = collect();
+        $destinationBranches = collect();
+        if ($employee->client_account_id) {
+            $destinationBusinesses = DB::table('businesses')->where('client_account_id', $employee->client_account_id)
+                ->where('active', true)->where('id', '!=', $employee->business_id)->orderBy('name')->get(['id', 'name']);
+            $destinationBranches = DB::table('branches')->whereIn('business_id', $destinationBusinesses->pluck('id'))
+                ->where('active', true)->orderBy('name')->get(['id', 'business_id', 'name']);
+        }
+        return view('platform.support.employee', compact('employee', 'business', 'branches', 'records', 'destinationBusinesses', 'destinationBranches'));
+    }
+
+    /** Transfer access while keeping the source business's historical records intact. */
+    public function transferEmployee(Request $request, int $employeeId)
+    {
+        $employee = User::where('role', 'employee')->findOrFail($employeeId);
+        abort_unless($employee->client_account_id, 422, 'This employee is not linked to a multi-business client account.');
+        $values = $request->validate([
+            'destination_business_id' => ['required', 'integer', Rule::exists('businesses', 'id')->where(fn ($query) =>
+                $query->where('client_account_id', $employee->client_account_id)->where('active', true))],
+            'branch_ids' => 'required|array|min:1',
+            'branch_ids.*' => ['required', 'integer', Rule::exists('branches', 'id')->where('business_id', (int) $request->input('destination_business_id'))->where('active', true)],
+            'client_contact' => 'required|string|min:2|max:120',
+            'client_confirmed' => 'accepted',
+        ]);
+        $sourceBusinessId = (int) DB::table('users')->where('id', $employee->id)->value('business_id');
+        $destinationBusinessId = (int) $values['destination_business_id'];
+        abort_if($sourceBusinessId === $destinationBusinessId, 422, 'Choose a different business in the same client account.');
+        $branchIds = array_values(array_unique(array_map('intval', $values['branch_ids'])));
+        $oldEmail = $employee->email;
+        $destinationUserId = DB::transaction(function () use ($employee, $sourceBusinessId, $destinationBusinessId, $branchIds, $values, $oldEmail) {
+            $lockedBusinesses = DB::table('businesses')->whereIn('id', [$sourceBusinessId, $destinationBusinessId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $clientAccountId = (int) $employee->client_account_id;
+            abort_unless($lockedBusinesses->count() === 2
+                && (int) $lockedBusinesses[$sourceBusinessId]->client_account_id === $clientAccountId
+                && (int) $lockedBusinesses[$destinationBusinessId]->client_account_id === $clientAccountId
+                && (bool) $lockedBusinesses[$destinationBusinessId]->active,
+                422, 'Both businesses must remain active members of the same client account.');
+            $activeDestinationBranches = DB::table('branches')->where('business_id', $destinationBusinessId)
+                ->where('active', true)->whereIn('id', $branchIds)->count();
+            abort_unless($activeDestinationBranches === count($branchIds), 422, 'Choose active branches that belong to the destination business.');
+            $current = User::where('business_id', $sourceBusinessId)->where('role', 'employee')->where('id', $employee->id)->lockForUpdate()->firstOrFail();
+            abort_if(DB::table('attendance_records')->where('business_id', $sourceBusinessId)->where('user_id', $current->id)->whereNull('clock_out')->exists(), 422, 'Clock out or correct the employee’s open shift before transferring this account.');
+            if ($current->active) $this->capacity->ensureEmployeeAssignments($destinationBusinessId, $branchIds);
+
+            // Attendance has a composite foreign key to (user_id, business_id).
+            // Keep the old user row as a disabled, non-login history record, then
+            // create a destination account with the same email and password hash.
+            $archiveEmail = 'transferred-'.$current->id.'@archive.mentoclock.invalid';
+            abort_if(DB::table('users')->where('email', $archiveEmail)->where('id', '!=', $current->id)->exists(), 409, 'The archive email is already in use. Contact support.');
+            $raw = (array) DB::table('users')->where('id', $current->id)->first();
+            unset($raw['id']);
+            $now = now('UTC');
+            DB::table('users')->where('id', $current->id)->update([
+                'email' => $archiveEmail, 'active' => false, 'remember_token' => null, 'updated_at' => $now,
+            ]);
+            $newUser = array_replace($raw, [
+                'business_id' => $destinationBusinessId,
+                'client_account_id' => $current->client_account_id,
+                'business_role_id' => null,
+                'email' => $oldEmail,
+                'active' => (bool) $current->active,
+                'remember_token' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            $newUserId = (int) DB::table('users')->insertGetId($newUser);
+            foreach ($branchIds as $branchId) {
+                DB::table('employee_branches')->insert([
+                    'business_id' => $destinationBusinessId, 'user_id' => $newUserId, 'branch_id' => $branchId,
+                ]);
+            }
+            $current->tokens()->delete();
+            DB::table('sessions')->where('user_id', $current->id)->delete();
+            DB::table('personal_access_tokens')->where('tokenable_type', User::class)->where('tokenable_id', $current->id)->delete();
+
+            $this->audit($sourceBusinessId, 'Employee transferred to another business', [
+                'employee_id' => $current->id, 'destination_employee_id' => $newUserId,
+                'email' => $oldEmail, 'destination_business_id' => $destinationBusinessId,
+                'client_contact' => trim($values['client_contact']), 'history_retained_in_source' => true,
+            ]);
+            $this->audit($destinationBusinessId, 'Employee received from another business', [
+                'source_employee_id' => $current->id, 'employee_id' => $newUserId,
+                'email' => $oldEmail, 'source_business_id' => $sourceBusinessId,
+                'client_contact' => trim($values['client_contact']), 'history_retained_in_source' => true,
+            ]);
+            return $newUserId;
+        });
+
+        return redirect('/platform/support/employees/'.$destinationUserId)
+            ->with('status', 'Employee access transferred. The original login email and password are retained; past records remain with the source business. The employee may need to sign in again.');
+    }
+
+    /** Permanently remove employee operational data after explicit email confirmation. */
+    public function deleteEmployee(Request $request, int $employeeId)
+    {
+        $employee = User::where('role', 'employee')->findOrFail($employeeId);
+        $values = $request->validate([
+            'confirm_email' => 'required|string|max:255',
+            'client_contact' => 'required|string|min:2|max:120',
+            'client_confirmed' => 'accepted',
+        ]);
+        abort_unless(hash_equals(mb_strtolower($employee->email), mb_strtolower(trim($values['confirm_email']))), 422, 'Type the employee’s login email exactly to confirm deletion.');
+        $businessId = (int) DB::table('users')->where('id', $employee->id)->value('business_id');
+        $documentPaths = [];
+
+        DB::transaction(function () use ($employee, $businessId, $values, &$documentPaths) {
+            DB::table('businesses')->where('id', $businessId)->lockForUpdate()->firstOrFail();
+            $current = User::where('business_id', $businessId)->where('role', 'employee')->where('id', $employee->id)->lockForUpdate()->firstOrFail();
+            $attendanceIds = DB::table('attendance_records')->where('business_id', $businessId)->where('user_id', $current->id)->pluck('id');
+            $shiftIds = DB::table('rota_shifts')->where('business_id', $businessId)->where('user_id', $current->id)->pluck('id');
+            $leaveIds = DB::table('leave_requests')->where('business_id', $businessId)->where('user_id', $current->id)->pluck('id');
+            $caseIds = DB::table('employee_lifecycle_cases')->where('business_id', $businessId)->where('user_id', $current->id)->pluck('id');
+            $taskIds = $caseIds->isEmpty() ? collect() : DB::table('employee_lifecycle_tasks')->whereIn('case_id', $caseIds)->pluck('id');
+            $documentIds = DB::table('employee_documents')->where('business_id', $businessId)->where('user_id', $current->id)->pluck('id');
+            $trainingIds = DB::table('employee_training_records')->where('business_id', $businessId)->where('user_id', $current->id)->pluck('id');
+            $documentPaths = DB::table('employee_documents')->where('business_id', $businessId)->where('user_id', $current->id)->pluck('storage_path')->all();
+            $targetedNoticeIds = DB::table('company_notices')->where('business_id', $businessId)->where('audience', 'employee')->where('target_id', $current->id)->pluck('id');
+
+            if ($attendanceIds->isNotEmpty()) {
+                DB::table('audit_logs')->whereIn('attendance_id', $attendanceIds)->delete();
+            }
+            DB::table('audit_logs')->where('actor_id', $current->id)->delete();
+            if ($leaveIds->isNotEmpty()) {
+                DB::table('leave_request_events')->whereIn('leave_request_id', $leaveIds)->delete();
+                DB::table('leave_requests')->whereIn('id', $leaveIds)->delete();
+            }
+            DB::table('leave_admin_events')->where('business_id', $businessId)->where('actor_id', $current->id)->delete();
+            DB::table('leave_admin_events')->where('business_id', $businessId)->where('subject_type', 'employee_leave_profile')->where('subject_id', $current->id)->delete();
+            if ($leaveIds->isNotEmpty()) DB::table('leave_admin_events')->where('business_id', $businessId)->where('subject_type', 'leave_request')->whereIn('subject_id', $leaveIds)->delete();
+            DB::table('employee_leave_profiles')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
+            if ($shiftIds->isNotEmpty()) {
+                DB::table('rota_events')->whereIn('rota_shift_id', $shiftIds)->delete();
+                DB::table('rota_shifts')->whereIn('id', $shiftIds)->delete();
+            }
+            DB::table('rota_events')->where('business_id', $businessId)->where('actor_id', $current->id)->delete();
+            DB::table('rota_availability')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
+            DB::table('attendance_records')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
+            DB::table('employee_documents')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
+            DB::table('employee_training_records')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
+            DB::table('company_notice_receipts')->where('business_id', $businessId)->where('user_id', $current->id)->delete();
+            if ($targetedNoticeIds->isNotEmpty()) {
+                DB::table('company_notice_receipts')->whereIn('notice_id', $targetedNoticeIds)->delete();
+                DB::table('company_notices')->whereIn('id', $targetedNoticeIds)->delete();
+            }
+            if ($caseIds->isNotEmpty()) DB::table('employee_lifecycle_cases')->whereIn('id', $caseIds)->delete();
+            DB::table('hr_reminders')->where('business_id', $businessId)->where('subject_id', $current->id)->whereIn('subject_type', ['user', 'employee'])->delete();
+            if ($leaveIds->isNotEmpty()) DB::table('hr_reminders')->where('business_id', $businessId)->where('subject_type', 'leave_request')->whereIn('subject_id', $leaveIds)->delete();
+            if ($documentIds->isNotEmpty()) DB::table('hr_reminders')->where('business_id', $businessId)->where('subject_type', 'employee_document')->whereIn('subject_id', $documentIds)->delete();
+            if ($trainingIds->isNotEmpty()) DB::table('hr_reminders')->where('business_id', $businessId)->where('subject_type', 'training_record')->whereIn('subject_id', $trainingIds)->delete();
+            if ($taskIds->isNotEmpty()) DB::table('hr_reminders')->where('business_id', $businessId)->where('subject_type', 'lifecycle_task')->whereIn('subject_id', $taskIds)->delete();
+            DB::table('hr_module_events')->where('business_id', $businessId)->where('actor_id', $current->id)->delete();
+            DB::table('hr_module_events')->where('business_id', $businessId)->where('subject_type', 'user')->where('subject_id', $current->id)->delete();
+            if ($documentIds->isNotEmpty()) DB::table('hr_module_events')->where('business_id', $businessId)->where('subject_type', 'employee_document')->whereIn('subject_id', $documentIds)->delete();
+            if ($trainingIds->isNotEmpty()) DB::table('hr_module_events')->where('business_id', $businessId)->where('subject_type', 'training_record')->whereIn('subject_id', $trainingIds)->delete();
+            if ($caseIds->isNotEmpty()) DB::table('hr_module_events')->where('business_id', $businessId)->where('subject_type', 'lifecycle_case')->whereIn('subject_id', $caseIds)->delete();
+            if ($taskIds->isNotEmpty()) DB::table('hr_module_events')->where('business_id', $businessId)->where('subject_type', 'lifecycle_task')->whereIn('subject_id', $taskIds)->delete();
+            if ($targetedNoticeIds->isNotEmpty()) DB::table('hr_module_events')->where('business_id', $businessId)->where('subject_type', 'company_notice')->whereIn('subject_id', $targetedNoticeIds)->delete();
+            DB::table('sessions')->where('user_id', $current->id)->delete();
+            DB::table('password_reset_tokens')->where('email', $current->email)->delete();
+            DB::table('personal_access_tokens')->where('tokenable_type', User::class)->where('tokenable_id', $current->id)->delete();
+            DB::table('users')->where('reporting_authority_id', $current->id)->update(['reporting_authority_id' => null]);
+            DB::table('users')->where('leave_sanction_authority_id', $current->id)->update(['leave_sanction_authority_id' => null]);
+
+            $this->audit($businessId, 'Employee and linked records permanently deleted', [
+                'employee_id' => $current->id, 'email' => $current->email,
+                'client_contact' => trim($values['client_contact']),
+                'deleted_categories' => ['profile', 'attendance', 'rota', 'leave', 'documents', 'training', 'lifecycle', 'notices'],
+            ]);
+            $current->delete();
+        });
+
+        if ($documentPaths) Storage::disk('local')->delete($documentPaths);
+        return redirect('/platform/support')->with('status', 'Employee profile and linked operational records were permanently deleted. A minimal Super Admin security audit entry was retained.');
     }
 
     public function sendResetLink(Request $request, int $employeeId)

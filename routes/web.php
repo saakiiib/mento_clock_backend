@@ -123,6 +123,8 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::post('/general-enquiries/{id}',[MarketingAdminController::class,'updateGeneralEnquiry'])->whereNumber('id');
  Route::post('/general-enquiries/{id}/delete',[MarketingAdminController::class,'deleteGeneralEnquiry'])->whereNumber('id');
  Route::get('/support/employees/{employeeId}',[PlatformSupportController::class,'employee'])->whereNumber('employeeId');
+ Route::post('/support/employees/{employeeId}/transfer',[PlatformSupportController::class,'transferEmployee'])->whereNumber('employeeId');
+ Route::post('/support/employees/{employeeId}/delete',[PlatformSupportController::class,'deleteEmployee'])->whereNumber('employeeId');
  Route::post('/support/employees/{employeeId}/reset-link',[PlatformSupportController::class,'sendResetLink'])->whereNumber('employeeId')->middleware('throttle:3,1');
  Route::post('/support/employees/{employeeId}/email',[PlatformSupportController::class,'updateLoginEmail'])->whereNumber('employeeId');
  Route::post('/support/employees/{employeeId}/status',[PlatformSupportController::class,'employeeStatus'])->whereNumber('employeeId');

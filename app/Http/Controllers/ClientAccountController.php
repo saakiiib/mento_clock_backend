@@ -13,13 +13,15 @@ class ClientAccountController
 {
     public function index()
     {
-        $accounts = DB::table('client_accounts as c')->leftJoin('users as u', function ($join) {
-            $join->on('u.client_account_id', '=', 'c.id')->where('u.role', '=', 'admin');
-        })->select('c.*', DB::raw('COUNT(DISTINCT u.id) as administrators_count'))
+        // Keep the list query free of GROUP BY so MySQL's default
+        // ONLY_FULL_GROUP_BY mode works for both the page query and paginate count.
+        $accounts = DB::table('client_accounts as c')->select('c.*')
+            ->selectSub(DB::table('users as u')->selectRaw('COUNT(*)')
+                ->whereColumn('u.client_account_id', 'c.id')->where('u.role', 'admin'), 'administrators_count')
             ->selectSub(DB::table('businesses')->selectRaw('COUNT(*)')->whereColumn('client_account_id', 'c.id'), 'businesses_count')
             ->selectSub(DB::table('businesses as b')->join('branches as w', 'w.business_id', '=', 'b.id')
                 ->selectRaw('COUNT(*)')->whereColumn('b.client_account_id', 'c.id')->where('w.active', true), 'workspaces_count')
-            ->groupBy('c.id')->orderByDesc('c.id')->paginate(20);
+            ->orderByDesc('c.id')->paginate(20);
         return view('platform.accounts.index', compact('accounts'));
     }
 
@@ -42,8 +44,8 @@ class ClientAccountController
             'businesses.*.name' => 'required|string|max:100', 'businesses.*.timezone' => 'required|timezone',
             'businesses.*.workspace_limit' => 'required|integer|min:1|max:500',
             'businesses.*.employee_limit' => 'required|integer|min:1|max:500',
-            'module_codes' => 'required|array|min:1',
-            'module_codes.*' => [Rule::exists('modules', 'code')->where('available', true)],
+            'businesses.*.module_codes' => 'required|array|min:1',
+            'businesses.*.module_codes.*' => [Rule::exists('modules', 'code')->where('available', true)],
         ]);
 
         $accountId = DB::transaction(function () use ($values) {
@@ -68,7 +70,7 @@ class ClientAccountController
                     'created_at' => $now, 'updated_at' => $now,
                 ]);
                 WorkspacePermissions::seedDefaultRoles($businessId);
-                $this->syncModules($businessId, $values['module_codes']);
+                $this->syncModules($businessId, $businessValues['module_codes']);
                 $businessIds[] = $businessId;
             }
 
@@ -93,7 +95,8 @@ class ClientAccountController
             ->selectSub(DB::table('users')->selectRaw('COUNT(*)')->whereColumn('business_id', 'b.id')->where('role', 'employee')->where('active', true), 'employees_count')
             ->orderBy('b.name')->get();
         $admins = User::where('client_account_id', $id)->where('role', 'admin')->get();
-        return view('platform.accounts.show', compact('account', 'businesses', 'admins'));
+        $modules = DB::table('modules')->where('available', true)->orderBy('sort_order')->get();
+        return view('platform.accounts.show', compact('account', 'businesses', 'admins', 'modules'));
     }
 
     public function addBusiness(Request $request, int $id)
@@ -102,6 +105,8 @@ class ClientAccountController
         $values = $request->validate([
             'name' => 'required|string|max:100', 'timezone' => 'required|timezone',
             'workspace_limit' => 'required|integer|min:1|max:500', 'employee_limit' => 'required|integer|min:1|max:500',
+            'module_codes' => 'required|array|min:1',
+            'module_codes.*' => [Rule::exists('modules', 'code')->where('available', true)],
         ]);
         DB::transaction(function () use ($id, $values) {
             $businessId = DB::table('businesses')->insertGetId([
@@ -116,11 +121,7 @@ class ClientAccountController
                 'created_at' => now('UTC'), 'updated_at' => now('UTC'),
             ]);
             WorkspacePermissions::seedDefaultRoles($businessId);
-            $sourceBusinessId = DB::table('businesses')->where('client_account_id', $id)->where('id', '!=', $businessId)->orderBy('id')->value('id');
-            $codes = $sourceBusinessId ? DB::table('business_modules as bm')->join('modules as m', 'm.id', '=', 'bm.module_id')
-                ->where('bm.business_id', $sourceBusinessId)->where('bm.status', 'active')->pluck('m.code')->all() : [];
-            if (!$codes) $codes = DB::table('modules')->where('is_core', true)->pluck('code')->all();
-            $this->syncModules($businessId, $codes);
+            $this->syncModules($businessId, $values['module_codes']);
             $this->audit($businessId, 'Business added to client account', ['client_account_id' => $id]);
         });
         return back()->with('status', 'Business added with its own workspace and employee limits.');

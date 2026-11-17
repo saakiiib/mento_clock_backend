@@ -31,6 +31,24 @@ class PlatformPortalTest extends TestCase
         return ['name'=>'New Business','timezone'=>'Europe/London','branch_limit'=>3,'employees_per_branch_limit'=>8,'contact_name'=>'Client Contact','contact_email'=>'contact@example.test','contact_phone'=>'07700900123','address'=>'Test address','website'=>'https://example.com','plan_label'=>'Multiple workplaces','notes'=>'Internal note only','module_codes'=>['employee_management','attendance_tracking','reports_analytics']];
     }
 
+    public function test_multi_business_account_list_avoids_group_by_aggregation(): void
+    {
+        $this->platform();
+        foreach (['Account One', 'Account Two'] as $name) {
+            DB::table('client_accounts')->insert([
+                'name' => $name,
+                'contact_name' => $name.' Contact',
+                'contact_email' => strtolower(str_replace(' ', '.', $name)).'@example.test',
+                'active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->get('/platform/accounts')->assertOk()
+            ->assertSee('Account One')->assertSee('Account Two');
+    }
+
     public function test_guest_and_client_cannot_access_platform_management(): void
     {
         $this->get('/platform')->assertRedirect('/login');

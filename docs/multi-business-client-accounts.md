@@ -17,7 +17,7 @@ Client account (one administrator login)
 3. Add each business and set its maximum workspace/branch count and active employee limit per workspace.
 4. Choose the product modules. They are enabled on each business created in this form.
 5. Share the administrator credentials securely. The password is hashed and is not emailed.
-6. Use the account detail page to add further businesses. Use each business's existing client detail page to review/change its limits and settings.
+6. Use the account detail page to add further businesses. Use each business's existing client detail page to review/change its limits and module entitlements.
 
 The client signs in once. In the web portal, the business selector in the top bar switches their active business. Workspaces, employees, rotas, attendance, holidays and reports remain scoped to the selected business.
 

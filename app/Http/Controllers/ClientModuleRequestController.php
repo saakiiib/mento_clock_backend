@@ -16,6 +16,19 @@ class ClientModuleRequestController
         $business = DB::table('businesses')->where('id', $businessId)->firstOrFail();
         $activeEmployees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)->count();
         $activeBranches = DB::table('branches')->where('business_id', $businessId)->where('active', true)->count();
+        $activeBranchEmployeeCounts = DB::table('branches as b')
+            ->leftJoin('employee_branches as eb', function ($join) {
+                $join->on('eb.branch_id', '=', 'b.id')->on('eb.business_id', '=', 'b.business_id');
+            })
+            ->leftJoin('users as u', function ($join) {
+                $join->on('u.id', '=', 'eb.user_id')->on('u.business_id', '=', 'eb.business_id')
+                    ->where('u.role', 'employee')->where('u.active', true);
+            })
+            ->where('b.business_id', $businessId)->where('b.active', true)
+            ->groupBy('b.id', 'b.name')
+            ->orderBy('b.name')
+            ->select('b.id', 'b.name', DB::raw('COUNT(DISTINCT u.id) as employee_count'))
+            ->get();
         $corePlan = DB::table('module_pricing_settings')->where('id', 1)->first();
         $profile = DB::table('client_profiles')->where('business_id', $businessId)->first();
         $coreDiscountPercent = (int) ($profile->core_discount_percent ?? 0);
@@ -33,7 +46,7 @@ class ClientModuleRequestController
             ->pluck('m.id')->all();
         $entitlements = DB::table('business_modules')->where('business_id', $businessId)
             ->select('module_id', 'entitlement_type', 'ends_at')->get()->keyBy('module_id');
-        return view('client.modules', compact('business', 'businessId', 'activeEmployees', 'activeBranches', 'corePlan', 'coreDiscountPercent', 'includedEmployees', 'modules', 'pending', 'latestRequests', 'enabledIds', 'entitlements'));
+        return view('client.modules', compact('business', 'businessId', 'activeEmployees', 'activeBranches', 'activeBranchEmployeeCounts', 'corePlan', 'coreDiscountPercent', 'includedEmployees', 'modules', 'pending', 'latestRequests', 'enabledIds', 'entitlements'));
     }
 
     public function store(Request $request, int $moduleId)

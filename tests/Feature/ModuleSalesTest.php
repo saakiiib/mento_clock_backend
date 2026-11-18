@@ -105,6 +105,46 @@ class ModuleSalesTest extends TestCase
             ->assertSee('50% agreed discount')->assertDontSee('Request paid access');
     }
 
+    public function test_tiered_add_on_price_uses_each_active_branch_capacity(): void
+    {
+        $businessId = DB::table('businesses')->insertGetId([
+            'name' => 'Branch Pricing Kitchen', 'timezone' => 'Europe/London', 'active' => true,
+        ]);
+        $branchIds = [];
+        foreach (['North branch', 'South branch'] as $name) {
+            $branchIds[] = DB::table('branches')->insertGetId([
+                'business_id' => $businessId, 'name' => $name, 'address' => 'Test address',
+                'latitude' => 52.0, 'longitude' => -0.5, 'radius_m' => 100, 'active' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        $module = DB::table('modules')->where('code', 'leave_management')->firstOrFail();
+        DB::table('modules')->where('id', $module->id)->update([
+            'available' => true, 'included_price_pence' => 150, 'extra_employee_price_pence' => 30,
+            'pricing_model' => 'tiered', 'price_basis' => 'per_employee',
+        ]);
+        $admin = User::create([
+            'business_id' => $businessId, 'name' => 'Branch Owner', 'email' => 'branch-owner@example.test',
+            'password' => 'test-password-123', 'role' => 'admin', 'active' => true,
+        ]);
+        for ($index = 1; $index <= 10; $index++) {
+            $employee = User::create([
+                'business_id' => $businessId, 'name' => 'Branch Employee '.$index,
+                'email' => 'branch-employee'.$index.'@example.test', 'password' => 'test-password-123',
+                'role' => 'employee', 'active' => true,
+            ]);
+            DB::table('employee_branches')->insert([
+                'business_id' => $businessId, 'user_id' => $employee->id,
+                'branch_id' => $index <= 7 ? $branchIds[0] : $branchIds[1],
+            ]);
+        }
+
+        $this->actingAs($admin)->get('/modules')->assertOk()
+            ->assertSee('£3.60/month')->assertSee('£1.50 per active branch/month')
+            ->assertSee('Additional employees above that allowance: £0.30 per employee/month')
+            ->assertSee('Estimate is based on all 2 active branches');
+    }
+
     public function test_business_admin_can_request_a_module_but_access_waits_for_super_admin_approval(): void
     {
         $businessId = DB::table('businesses')->insertGetId(['name'=>'Trial Kitchen','timezone'=>'Europe/London','active'=>true]);

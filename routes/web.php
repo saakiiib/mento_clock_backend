@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
-use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,ClientAccountController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController,ClientModuleRequestController,PlatformModuleController};
+use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,ClientAccountController,ClientAccountSettingsController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController,ClientModuleRequestController,PlatformModuleController};
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -37,6 +37,8 @@ Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');
 Route::middleware(['auth','active.business','workspace.access'])->group(function(){
  Route::get('/modules',[ClientModuleRequestController::class,'index']);
+ Route::get('/account',[ClientAccountSettingsController::class,'index']);
+ Route::post('/account',[ClientAccountSettingsController::class,'update'])->middleware('throttle:5,1');
  Route::post('/modules/{moduleId}/request',[ClientModuleRequestController::class,'store'])->whereNumber('moduleId')->middleware('throttle:10,1');
  Route::post('/business/select',[AdminController::class,'selectBusiness']);
  Route::get('/employees/create',[AdminController::class,'createEmployee'])->middleware(['module.enabled:employee_management','role.permission:people.manage']);
@@ -114,6 +116,8 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::get('/accounts',[ClientAccountController::class,'index']);
  Route::get('/accounts/create',[ClientAccountController::class,'create']);
  Route::post('/accounts',[ClientAccountController::class,'store']);
+ Route::get('/accounts/{id}/edit',[ClientAccountController::class,'edit'])->whereNumber('id');
+ Route::post('/accounts/{id}/edit',[ClientAccountController::class,'update'])->whereNumber('id')->middleware('throttle:10,1');
  Route::get('/accounts/{id}',[ClientAccountController::class,'show'])->whereNumber('id');
  Route::post('/accounts/{id}/status',[ClientAccountController::class,'status'])->whereNumber('id');
  Route::post('/accounts/{id}/businesses',[ClientAccountController::class,'addBusiness'])->whereNumber('id');

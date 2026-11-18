@@ -16,6 +16,11 @@ class MarketingTrialRequestTest extends TestCase
             ->assertOk()
             ->assertSee('Want to try MentoClock with your team?')
             ->assertSee('Request a private trial')
+            ->assertSee('Clock in/out & attendance reports')
+            ->assertSee('£15.00')
+            ->assertSee('Leave Management')
+            ->assertSee('£1.50')
+            ->assertSee('per additional active employee/month')
             ->assertSee('trial-dialog');
     }
 

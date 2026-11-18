@@ -12,6 +12,16 @@ class ModuleSalesTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_super_admin_can_open_module_requests_page_with_no_requests(): void
+    {
+        $platform = PlatformAdmin::create(['name'=>'Module Operator','email'=>'module-operator@example.test','password'=>'platform-password-123','active'=>true]);
+        $this->actingAs($platform,'platform')->withSession(['platform_version'=>$platform->auth_version]);
+        Auth::shouldUse('web');
+
+        $this->get('/platform/module-requests')->assertOk()
+            ->assertSee('Module requests')->assertSee('No module requests yet');
+    }
+
     public function test_super_admin_can_open_module_guide_with_walkthroughs(): void
     {
         $platform = PlatformAdmin::create(['name'=>'Guide Operator','email'=>'guide@example.test','password'=>'platform-password-123','active'=>true]);
@@ -27,7 +37,10 @@ class ModuleSalesTest extends TestCase
     {
         $businessId = DB::table('businesses')->insertGetId(['name'=>'Trial Kitchen','timezone'=>'Europe/London','active'=>true]);
         $module = DB::table('modules')->where('code','leave_management')->first();
-        DB::table('modules')->where('id',$module->id)->update(['available'=>true,'monthly_price_pence'=>500]);
+        DB::table('modules')->where('id',$module->id)->update([
+            'available'=>true,'monthly_price_pence'=>500,'included_price_pence'=>500,
+            'extra_employee_price_pence'=>100,'pricing_model'=>'tiered','price_basis'=>'per_employee',
+        ]);
         $admin = User::create(['business_id'=>$businessId,'name'=>'Owner','email'=>'owner@example.test','password'=>'test-password-123','role'=>'admin','active'=>true]);
 
         $this->actingAs($admin)->get('/modules')->assertOk()->assertSee('Plans & modules')->assertSee('£5.00/month');

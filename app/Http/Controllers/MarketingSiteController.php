@@ -17,6 +17,8 @@ class MarketingSiteController
             's' => $s,
             'features' => MarketingSite::items('feature'),
             'plans' => MarketingSite::items('plan'),
+            'pricingCorePlan' => DB::table('module_pricing_settings')->where('id', 1)->first(),
+            'pricingModules' => DB::table('modules')->orderBy('sort_order')->get(),
             'faqs' => MarketingSite::items('faq'),
             'title' => $s['seo_title'] ?? 'MentoClock',
             'canonicalPath' => '/',

@@ -38,18 +38,20 @@ class PlatformModuleController
             'monthly_price' => 'nullable|numeric|min:0|max:99999.99',
             'included_branches' => 'required|integer|min:1|max:500',
             'included_employees' => 'required|integer|min:1|max:500',
+            'extra_employee_price' => 'nullable|numeric|min:0|max:99999.99',
         ]);
         $monthlyPrice = $values['monthly_price'] ?? null;
         DB::table('module_pricing_settings')->where('id', 1)->update([
             'core_plan_price_pence' => $monthlyPrice === null || $monthlyPrice === ''
                 ? null : (int) round((float) $monthlyPrice * 100),
             'included_branches' => $values['included_branches'], 'included_employees' => $values['included_employees'],
+            'core_extra_employee_price_pence' => ($values['extra_employee_price'] ?? '') === '' ? null : (int) round((float) $values['extra_employee_price'] * 100),
             'updated_at' => now('UTC'),
         ]);
         DB::table('platform_audit_logs')->insert([
             'actor_id' => Auth::guard('platform')->id(), 'business_id' => null,
             'action' => 'Core plan pricing updated',
-            'details' => json_encode(['monthly_price_pence' => $monthlyPrice === null || $monthlyPrice === '' ? null : (int) round((float) $monthlyPrice * 100), 'included_branches' => $values['included_branches'], 'included_employees' => $values['included_employees']], JSON_THROW_ON_ERROR),
+            'details' => json_encode(['monthly_price_pence' => $monthlyPrice === null || $monthlyPrice === '' ? null : (int) round((float) $monthlyPrice * 100), 'included_branches' => $values['included_branches'], 'included_employees' => $values['included_employees'], 'extra_employee_price_pence' => ($values['extra_employee_price'] ?? '') === '' ? null : (int) round((float) $values['extra_employee_price'] * 100)], JSON_THROW_ON_ERROR),
             'created_at' => now('UTC'),
         ]);
         return back()->with('status', 'Core plan pricing and included capacity saved.');
@@ -61,18 +63,24 @@ class PlatformModuleController
         abort_if($module->is_core || $module->code === 'reports_analytics', 422, 'This module is included in the core plan. Update the core plan price instead.');
         $values = $request->validate([
             'monthly_price' => 'nullable|numeric|min:0|max:99999.99',
-            'price_basis' => ['required', Rule::in(['per_business', 'per_employee'])],
+            'extra_employee_price' => 'nullable|numeric|min:0|max:99999.99',
+            'pricing_model' => ['required', Rule::in(['tiered', 'per_business'])],
         ]);
         $monthlyPrice = $values['monthly_price'] ?? null;
         $pence = $monthlyPrice === null || $monthlyPrice === ''
             ? null : (int) round((float) $monthlyPrice * 100);
+        $extraPence = $values['pricing_model'] === 'per_business' || ($values['extra_employee_price'] ?? '') === ''
+            ? null : (int) round((float) $values['extra_employee_price'] * 100);
         DB::table('modules')->where('id', $moduleId)->update([
-            'monthly_price_pence' => $pence, 'price_basis' => $values['price_basis'], 'updated_at' => now('UTC'),
+            'monthly_price_pence' => $values['pricing_model'] === 'tiered' ? $extraPence : $pence,
+            'price_basis' => $values['pricing_model'] === 'tiered' ? 'per_employee' : 'per_business',
+            'included_price_pence' => $pence, 'extra_employee_price_pence' => $extraPence,
+            'pricing_model' => $values['pricing_model'], 'updated_at' => now('UTC'),
         ]);
         DB::table('platform_audit_logs')->insert([
             'actor_id' => Auth::guard('platform')->id(), 'business_id' => null,
             'action' => 'Module pricing updated',
-            'details' => json_encode(['module_id' => $moduleId, 'module' => $module->name, 'monthly_price_pence' => $pence, 'basis' => $values['price_basis']], JSON_THROW_ON_ERROR),
+            'details' => json_encode(['module_id' => $moduleId, 'module' => $module->name, 'included_price_pence' => $pence, 'extra_employee_price_pence' => $extraPence, 'pricing_model' => $values['pricing_model']], JSON_THROW_ON_ERROR),
             'created_at' => now('UTC'),
         ]);
         return back()->with('status', 'Module pricing saved. Clients will see the updated price on their next visit.');
@@ -87,7 +95,7 @@ class PlatformModuleController
             ->leftJoin('platform_admins as pa', 'pa.id', '=', 'r.reviewed_by')
             ->leftJoin('client_accounts as ca', 'ca.id', '=', 'b.client_account_id')
             ->select('r.*', 'b.name as business_name', 'm.name as module_name', 'm.code as module_code',
-                'm.monthly_price_pence', 'm.price_basis', DB::raw("COALESCE(u.name, 'Former user') as requester_name"), 'u.email as requester_email',
+                'm.monthly_price_pence', 'm.price_basis', 'm.included_price_pence', 'm.extra_employee_price_pence', 'm.pricing_model', DB::raw("COALESCE(u.name, 'Former user') as requester_name"), 'u.email as requester_email',
                 'ca.name as account_name', 'pa.name as reviewer_name')
             ->orderByRaw("CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END")
             ->orderByDesc('r.created_at')->paginate(25)->withQueryString();

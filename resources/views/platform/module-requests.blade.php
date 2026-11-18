@@ -2,8 +2,8 @@
 @section('title','Module requests')
 @section('content')
 <div class="page-heading"><div><span class="eyebrow">CLIENT REQUESTS</span><h1>Module requests</h1><p>Review requests by business, then approve trial or paid access. Approval enables the module only for that business.</p></div><a class="button secondary" href="{{url('/platform/module-catalogue')}}">Manage pricing</a></div>
-@if($requests->count() > 0)
-@foreach($requests as $item)
+<?php if ($requests->count() > 0): ?>
+<?php foreach ($requests as $item): ?>
 <section class="card module-request-card"><div class="card-head"><div><span class="eyebrow">{{$item->account_name ?: 'Business account'}}</span><h2>{{$item->business_name}} · {{$item->module_name}}</h2><p>Requested by {{$item->requester_name}} · {{$item->requester_email}} · {{ucfirst($item->desired_access)}} access requested</p></div><span class="badge {{$item->status==='pending'?'':'inactive'}}">{{ucfirst($item->status)}}</span></div>
 @if($item->request_note)<p><strong>Client note:</strong> {{$item->request_note}}</p>@endif
 @if($item->status === 'pending')
@@ -12,9 +12,8 @@
 <p class="caption">Reviewed {{\Illuminate\Support\Carbon::parse($item->reviewed_at)->format('d M Y')}}@if($item->reviewer_name) by {{$item->reviewer_name}}@endif @if($item->granted_type) · {{$item->granted_type==='trial'?'Trial':'Paid'}} access@endif @if($item->trial_ends_at) · trial ends {{\Illuminate\Support\Carbon::parse($item->trial_ends_at)->format('d M Y')}}@endif</p>@if($item->review_note)<p>{{$item->review_note}}</p>@endif
 @endif
 </section>
-@endforeach
-@else
+<?php endforeach; else: ?>
 <section class="card empty-state"><h2>No module requests yet</h2><p>Requests submitted by business administrators will appear here.</p></section>
-@endif
+<?php endif; ?>
 <div class="pagination-wrap">{{$requests->links()}}</div>
 @endsection

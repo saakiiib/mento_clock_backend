@@ -37,6 +37,9 @@ $links = $platform ? [
  ['/company','building','Organisation profile',request()->is('company')],
 ];
 if (!$platform) {
+    if ($viewer->role === 'admin' && $viewer->client_account_id) {
+        $links[] = ['/account','people','Account settings',request()->is('account')];
+    }
     $moduleAccess = app(\App\Services\ModuleAccess::class);
     $requiredModules = ['/people'=>'employee_management','/workplaces'=>'employee_management','/attendance'=>'attendance_tracking','/reports'=>'reports_analytics','/leave'=>'leave_management','/calendar'=>'holiday_calendar','/rota'=>'rota_shifts','/compliance'=>'compliance_tracking','/notices'=>'company_notices','/lifecycle'=>'employee_lifecycle','/reminders'=>'hr_reminders','/reports/hr'=>'hr_reports','/roles'=>'role_permissions','/documents'=>'document_management'];
     $requiredPermissions = ['/people'=>'people.view','/workplaces'=>'people.view','/attendance'=>'attendance.view','/reports'=>'reports.view','/leave'=>'leave.view','/calendar'=>'leave.view','/rota'=>'rota.view','/compliance'=>'compliance.view','/notices'=>'notices.view','/lifecycle'=>'lifecycle.view','/reminders'=>'reminders.view','/reports/hr'=>'reports.view','/roles'=>'roles.manage','/documents'=>'documents.view','/company'=>'organisation.view'];

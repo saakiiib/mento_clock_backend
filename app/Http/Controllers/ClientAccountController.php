@@ -99,6 +99,94 @@ class ClientAccountController
         return view('platform.accounts.show', compact('account', 'businesses', 'admins', 'modules'));
     }
 
+    public function edit(int $id)
+    {
+        $account = DB::table('client_accounts')->where('id', $id)->firstOrFail();
+        $primaryAdmin = User::where('client_account_id', $id)->where('role', 'admin')->orderBy('id')->first();
+        return view('platform.accounts.edit', compact('account', 'primaryAdmin'));
+    }
+
+    public function update(Request $request, int $id)
+    {
+        $account = DB::table('client_accounts')->where('id', $id)->firstOrFail();
+        $primaryAdmin = User::where('client_account_id', $id)->where('role', 'admin')->orderBy('id')->first();
+        if (is_string($request->input('admin_email'))) $request->merge(['admin_email' => strtolower(trim($request->input('admin_email')))]);
+
+        $rules = [
+            'client_name' => 'required|string|max:160',
+            'contact_name' => 'required|string|max:100',
+            'contact_email' => 'required|email|max:255',
+            'contact_phone' => 'nullable|string|max:40',
+        ];
+        if ($primaryAdmin) {
+            $rules += [
+                'admin_name' => 'required|string|max:100',
+                'admin_email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($primaryAdmin->id), Rule::unique('platform_admins', 'email')],
+                'admin_phone' => 'nullable|string|max:40',
+                'password' => ['nullable', 'string', 'min:12', 'max:72', 'confirmed'],
+            ];
+        }
+        $values = $request->validate($rules);
+
+        $identityChanged = false;
+        DB::transaction(function () use ($values, $id, $primaryAdmin, $request, &$identityChanged) {
+            $client = DB::table('client_accounts')->where('id', $id)->lockForUpdate()->firstOrFail();
+            $businessIds = DB::table('businesses')->where('client_account_id', $id)->orderBy('id')->pluck('id');
+            $now = now('UTC');
+            DB::table('client_accounts')->where('id', $id)->update([
+                'name' => trim($values['client_name']), 'contact_name' => trim($values['contact_name']),
+                'contact_email' => strtolower(trim($values['contact_email'])),
+                'contact_phone' => trim($values['contact_phone'] ?? ''), 'updated_at' => $now,
+            ]);
+            if ($businessIds->isNotEmpty()) {
+                DB::table('client_profiles')->whereIn('business_id', $businessIds)->update([
+                    'contact_name' => trim($values['contact_name']),
+                    'contact_email' => strtolower(trim($values['contact_email'])),
+                    'contact_phone' => trim($values['contact_phone'] ?? ''), 'updated_at' => $now,
+                ]);
+            }
+
+            $changedFields = ['name', 'contact_name', 'contact_email', 'contact_phone'];
+            $passwordChanged = false;
+            if ($primaryAdmin) {
+                $admin = User::where('client_account_id', $id)->where('role', 'admin')->where('id', $primaryAdmin->id)->lockForUpdate()->firstOrFail();
+                $identityChanged = $admin->name !== trim($values['admin_name'])
+                    || strtolower($admin->email) !== strtolower(trim($values['admin_email']))
+                    || trim((string) ($admin->phone ?? '')) !== trim((string) ($values['admin_phone'] ?? ''));
+                $passwordChanged = !empty($values['password']);
+                $admin->name = trim($values['admin_name']);
+                $admin->email = strtolower(trim($values['admin_email']));
+                $admin->phone = trim($values['admin_phone'] ?? '');
+                if ($passwordChanged) $admin->password = $values['password'];
+                $admin->save();
+                $identityChanged = $identityChanged || $passwordChanged;
+                $changedFields = [...$changedFields, 'primary_admin_name', 'primary_admin_email', 'primary_admin_phone'];
+                if ($passwordChanged) $changedFields[] = 'primary_admin_password';
+
+                if ($identityChanged) {
+                    $admin->tokens()->delete();
+                    DB::table('sessions')->where('user_id', $admin->id)->delete();
+                    DB::table('password_reset_tokens')->where('email', $primaryAdmin->email)->delete();
+                    DB::table('password_reset_tokens')->where('email', $admin->email)->delete();
+                }
+            }
+
+            foreach ($businessIds as $businessId) {
+                DB::table('platform_audit_logs')->insert([
+                    'actor_id' => Auth::guard('platform')->id(), 'business_id' => $businessId,
+                    'action' => 'Client account details updated',
+                    'details' => json_encode(['client_account_id' => $id, 'changed_fields' => $changedFields, 'login_sessions_revoked' => $identityChanged], JSON_THROW_ON_ERROR),
+                    'created_at' => $now,
+                ]);
+            }
+        });
+
+        if ($identityChanged && $primaryAdmin) {
+            return redirect('/platform/accounts/'.$id)->with('status', 'Client account updated. The client administrator’s sessions were revoked after the login details changed.');
+        }
+        return redirect('/platform/accounts/'.$id)->with('status', 'Client account and contact details updated across its businesses.');
+    }
+
     /** Suspend/reactivate every business and user under one client login. */
     public function status(Request $request, int $id)
     {

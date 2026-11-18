@@ -22,6 +22,34 @@ class ModuleSalesTest extends TestCase
             ->assertSee('Module requests')->assertSee('No module requests yet');
     }
 
+    public function test_super_admin_can_render_a_pending_module_request(): void
+    {
+        $businessId = DB::table('businesses')->insertGetId([
+            'name' => 'Request Kitchen', 'timezone' => 'Europe/London', 'active' => true,
+        ]);
+        $module = DB::table('modules')->where('code', 'leave_management')->firstOrFail();
+        $admin = User::create([
+            'business_id' => $businessId, 'name' => 'Kitchen Owner', 'email' => 'request-owner@example.test',
+            'password' => 'test-password-123', 'role' => 'admin', 'active' => true,
+        ]);
+        DB::table('client_module_requests')->insert([
+            'business_id' => $businessId, 'module_id' => $module->id, 'requested_by' => $admin->id,
+            'desired_access' => 'trial', 'status' => 'pending', 'request_note' => 'Please enable a trial.',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $platform = PlatformAdmin::create([
+            'name' => 'Module Operator', 'email' => 'pending-module-operator@example.test',
+            'password' => 'platform-password-123', 'active' => true,
+        ]);
+        $this->actingAs($platform, 'platform')->withSession(['platform_version' => $platform->auth_version]);
+        Auth::shouldUse('web');
+
+        $this->get('/platform/module-requests')->assertOk()
+            ->assertSee('Request Kitchen')->assertSee('Leave Management')
+            ->assertSee('Please enable a trial.')->assertSee('Save decision');
+    }
+
     public function test_super_admin_can_open_module_guide_with_walkthroughs(): void
     {
         $platform = PlatformAdmin::create(['name'=>'Guide Operator','email'=>'guide@example.test','password'=>'platform-password-123','active'=>true]);

@@ -33,6 +33,50 @@ class ModuleSalesTest extends TestCase
             ->assertSee('Employee Management')->assertSee('Rota & Shifts');
     }
 
+    public function test_core_price_uses_branch_capacity_and_business_discount_and_hides_paid_request_button(): void
+    {
+        $businessId = DB::table('businesses')->insertGetId([
+            'name' => 'MK Sushi Bar Ltd', 'timezone' => 'Europe/London', 'active' => true,
+        ]);
+        DB::table('client_profiles')->insert([
+            'business_id' => $businessId, 'branch_limit' => 8, 'employees_per_branch_limit' => 5,
+            'core_discount_percent' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        for ($index = 1; $index <= 5; $index++) {
+            DB::table('branches')->insert([
+                'business_id' => $businessId, 'name' => 'Branch '.$index, 'address' => 'Test address',
+                'latitude' => 52.0, 'longitude' => -0.5, 'radius_m' => 100, 'active' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        $admin = User::create([
+            'business_id' => $businessId, 'name' => 'Owner', 'email' => 'sushi-owner@example.test',
+            'password' => 'test-password-123', 'role' => 'admin', 'active' => true,
+        ]);
+        for ($index = 1; $index <= 19; $index++) {
+            User::create([
+                'business_id' => $businessId, 'name' => 'Employee '.$index,
+                'email' => 'employee'.$index.'@example.test', 'password' => 'test-password-123',
+                'role' => 'employee', 'active' => true,
+            ]);
+        }
+
+        $platform = PlatformAdmin::create([
+            'name' => 'Pricing Operator', 'email' => 'pricing-operator@example.test',
+            'password' => 'platform-password-123', 'active' => true,
+        ]);
+        $this->actingAs($platform, 'platform')->withSession(['platform_version' => $platform->auth_version]);
+        Auth::shouldUse('web');
+        $this->post('/platform/clients/'.$businessId.'/pricing', ['core_discount_percent' => 50])
+            ->assertRedirect()->assertSessionHas('status');
+        $this->assertDatabaseHas('client_profiles', ['business_id' => $businessId, 'core_discount_percent' => 50]);
+
+        $this->actingAs($admin, 'web');
+        $this->actingAs($admin)->get('/modules')->assertOk()
+            ->assertSee('£31.50/month')->assertSee('Standard £63.00')
+            ->assertSee('50% agreed discount')->assertDontSee('Request paid access');
+    }
+
     public function test_business_admin_can_request_a_module_but_access_waits_for_super_admin_approval(): void
     {
         $businessId = DB::table('businesses')->insertGetId(['name'=>'Trial Kitchen','timezone'=>'Europe/London','active'=>true]);

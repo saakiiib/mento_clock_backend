@@ -152,6 +152,7 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::post('/clients',[PlatformController::class,'store']);
  Route::get('/clients/{id}',[PlatformController::class,'show'])->whereNumber('id');
  Route::post('/clients/{id}',[PlatformController::class,'update'])->whereNumber('id');
+ Route::post('/clients/{id}/pricing',[PlatformController::class,'updatePricing'])->whereNumber('id')->middleware('throttle:10,1');
  Route::post('/clients/{id}/branches/{branchId}/capacity',[PlatformController::class,'branchCapacity'])->whereNumber('id')->whereNumber('branchId');
  Route::post('/clients/{id}/branches/{branchId}/status',[PlatformController::class,'branchStatus'])->whereNumber('id')->whereNumber('branchId');
  Route::get('/website',[MarketingAdminController::class,'index']);

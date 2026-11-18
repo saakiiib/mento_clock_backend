@@ -118,6 +118,23 @@ class PlatformController
         return view('platform.show', compact('business', 'profile', 'admins', 'branches', 'stats', 'activity', 'modules', 'moduleCodes'));
     }
 
+    public function updatePricing(Request $request, int $id)
+    {
+        DB::table('businesses')->where('id', $id)->firstOrFail();
+        $values = $request->validate([
+            'core_discount_percent' => 'required|integer|min:0|max:100',
+        ]);
+        $now = now('UTC');
+        DB::table('client_profiles')->updateOrInsert(
+            ['business_id' => $id],
+            ['core_discount_percent' => (int) $values['core_discount_percent'], 'updated_at' => $now, 'created_at' => $now],
+        );
+        $this->audit($id, 'Client core plan discount updated', [
+            'core_discount_percent' => (int) $values['core_discount_percent'],
+        ]);
+        return back()->with('status', 'The core plan discount for this business was saved.');
+    }
+
     public function update(Request $request, int $id)
     {
         DB::table('businesses')->where('id', $id)->firstOrFail();

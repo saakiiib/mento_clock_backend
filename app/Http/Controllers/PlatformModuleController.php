@@ -38,6 +38,7 @@ class PlatformModuleController
             'monthly_price' => 'nullable|numeric|min:0|max:99999.99',
             'included_branches' => 'required|integer|min:1|max:500',
             'included_employees' => 'required|integer|min:1|max:500',
+            'extra_branch_price' => 'nullable|numeric|min:0|max:99999.99',
             'extra_employee_price' => 'nullable|numeric|min:0|max:99999.99',
         ]);
         $monthlyPrice = $values['monthly_price'] ?? null;
@@ -45,16 +46,17 @@ class PlatformModuleController
             'core_plan_price_pence' => $monthlyPrice === null || $monthlyPrice === ''
                 ? null : (int) round((float) $monthlyPrice * 100),
             'included_branches' => $values['included_branches'], 'included_employees' => $values['included_employees'],
+            'core_extra_branch_price_pence' => ($values['extra_branch_price'] ?? '') === '' ? null : (int) round((float) $values['extra_branch_price'] * 100),
             'core_extra_employee_price_pence' => ($values['extra_employee_price'] ?? '') === '' ? null : (int) round((float) $values['extra_employee_price'] * 100),
             'updated_at' => now('UTC'),
         ]);
         DB::table('platform_audit_logs')->insert([
             'actor_id' => Auth::guard('platform')->id(), 'business_id' => null,
             'action' => 'Core plan pricing updated',
-            'details' => json_encode(['monthly_price_pence' => $monthlyPrice === null || $monthlyPrice === '' ? null : (int) round((float) $monthlyPrice * 100), 'included_branches' => $values['included_branches'], 'included_employees' => $values['included_employees'], 'extra_employee_price_pence' => ($values['extra_employee_price'] ?? '') === '' ? null : (int) round((float) $values['extra_employee_price'] * 100)], JSON_THROW_ON_ERROR),
+            'details' => json_encode(['monthly_price_pence' => $monthlyPrice === null || $monthlyPrice === '' ? null : (int) round((float) $monthlyPrice * 100), 'included_branches' => $values['included_branches'], 'employees_per_branch' => $values['included_employees'], 'extra_branch_price_pence' => ($values['extra_branch_price'] ?? '') === '' ? null : (int) round((float) $values['extra_branch_price'] * 100), 'extra_employee_price_pence' => ($values['extra_employee_price'] ?? '') === '' ? null : (int) round((float) $values['extra_employee_price'] * 100)], JSON_THROW_ON_ERROR),
             'created_at' => now('UTC'),
         ]);
-        return back()->with('status', 'Core plan pricing and included capacity saved.');
+        return back()->with('status', 'Core plan pricing, branch rates and employee capacity saved.');
     }
 
     public function updatePrice(Request $request, int $moduleId)

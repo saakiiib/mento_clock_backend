@@ -2,14 +2,21 @@
 @section('title','Plans & modules')
 @section('content')
 @php
-    $coreExtraCount = max(0, $activeEmployees - $includedEmployees);
-    $coreEstimate = $corePlan->core_plan_price_pence === null ? null : $corePlan->core_plan_price_pence + ($corePlan->core_extra_employee_price_pence !== null ? $coreExtraCount * $corePlan->core_extra_employee_price_pence : 0);
+    $includedBranches = (int) ($corePlan->included_branches ?? 1);
+    $extraBranchCount = max(0, $activeBranches - $includedBranches);
+    $capacityBranches = max($includedBranches, $activeBranches);
+    $coreExtraCount = max(0, $activeEmployees - ($capacityBranches * $includedEmployees));
+    $extraBranchPrice = $corePlan->core_extra_branch_price_pence ?? null;
+    $coreStandardPrice = ($corePlan->core_plan_price_pence === null || ($extraBranchCount > 0 && $extraBranchPrice === null) || ($coreExtraCount > 0 && $corePlan->core_extra_employee_price_pence === null))
+        ? null
+        : $corePlan->core_plan_price_pence + ($extraBranchPrice !== null ? $extraBranchCount * $extraBranchPrice : 0) + ($corePlan->core_extra_employee_price_pence !== null ? $coreExtraCount * $corePlan->core_extra_employee_price_pence : 0);
+    $coreEstimate = $coreStandardPrice === null ? null : (int) round($coreStandardPrice * (100 - $coreDiscountPercent) / 100);
 @endphp
 <div class="page-heading"><div><span class="eyebrow">BUSINESS PLAN</span><h1>Plans & modules</h1><p>Pricing and access for <strong>{{$business->name}}</strong>. Each business has its own module access and requests.</p></div></div>
-<section class="card core-plan-card"><div class="card-head"><div><span class="eyebrow">CORE PLAN</span><h2>Clock in/out & attendance reports</h2><p>Employee Management, Attendance Tracking and Dashboard & Reports.</p></div><strong class="module-price">{{$coreEstimate === null ? 'Price on request' : '£'.number_format($coreEstimate / 100,2).'/month'}}</strong></div>
-<p>{{$corePlan->included_branches}} branch{{$corePlan->included_branches===1?'':'es'}} and up to {{$includedEmployees}} employees included per business.{{$corePlan->core_extra_employee_price_pence !== null ? ' £'.number_format($corePlan->core_extra_employee_price_pence / 100,2).' per additional active employee/month.' : ''}}</p>
-<p class="caption">This business currently has {{$activeBranches}} active branch{{$activeBranches===1?'':'es'}} and {{$activeEmployees}} active employee{{$activeEmployees===1?'':'s'}}. @if($coreExtraCount > 0 && $corePlan->core_extra_employee_price_pence !== null)Estimate: core price plus {{$coreExtraCount}} extra employee{{$coreExtraCount===1?'':'s'}}. @endif{{$corePlan->included_branches > 0 && $activeBranches > $corePlan->included_branches ? 'Branch capacity above the included amount is agreed separately.' : ''}} Prices are monthly GBP estimates before any applicable VAT.</p></section>
-<div class="page-heading"><div><h2>Module prices</h2><p>All prices below are for this business each month. The starting price covers up to {{$includedEmployees}} active employees; additional employees are charged at the listed top-up rate.</p></div></div>
+<section class="card core-plan-card"><div class="card-head"><div><span class="eyebrow">CORE PLAN · THREE MODULES INCLUDED</span><h2>Clock in/out & attendance reports</h2><p>Employee Management · Attendance Tracking · Dashboard & Reports</p></div><div class="module-price">@if($coreEstimate === null)Price on request @else<strong>£{{number_format($coreEstimate / 100,2)}}/month</strong>@if($coreDiscountPercent > 0)<small>Standard £{{number_format($coreStandardPrice / 100,2)}} · {{$coreDiscountPercent}}% agreed discount</small>@endif @endif</div></div>
+<p>{{$includedBranches}} branch{{$includedBranches===1?'':'es'}} and up to {{$includedEmployees}} employees per branch included. @if($extraBranchPrice !== null) Each additional branch: £{{number_format($extraBranchPrice / 100,2)}}/month, including up to {{$includedEmployees}} employees. @else Additional branch pricing is agreed by quote. @endif @if($corePlan->core_extra_employee_price_pence !== null)Employees above the included branch capacity: £{{number_format($corePlan->core_extra_employee_price_pence / 100,2)}} each/month.@endif</p>
+<p class="caption">This business has {{$activeBranches}} active branch{{$activeBranches===1?'':'es'}} and {{$activeEmployees}} active employee{{$activeEmployees===1?'':'s'}}. @if($coreStandardPrice !== null)@if($extraBranchCount > 0)Standard estimate: £{{number_format($coreStandardPrice / 100,2)}} ({{$extraBranchCount}} additional branch{{$extraBranchCount===1?'':'es'}}). @else Standard estimate: £{{number_format($coreStandardPrice / 100,2)}}. @endif @if($coreDiscountPercent > 0)Agreed {{$coreDiscountPercent}}% discount applied: £{{number_format($coreEstimate / 100,2)}}/month. @endif @if($coreExtraCount > 0)Includes {{$coreExtraCount}} employee{{$coreExtraCount===1?'':'s'}} above branch capacity. @endif @endif Monthly GBP estimate, before any applicable VAT; your agreed quote confirms the final amount.</p></section>
+<div class="page-heading"><div><h2>Add-on module prices</h2><p>Optional modules are priced separately. Any per-employee top-up rates are shown on the relevant module card.</p></div></div>
 <div class="module-grid client-module-grid">
 @foreach($modules as $module)
     @php
@@ -46,9 +53,8 @@
             @else
                 <div class="module-request-actions">
                     <form method="post" action="{{url('/modules/'.$module->id.'/request')}}">@csrf<input type="hidden" name="desired_access" value="trial"><button class="secondary">Request a trial</button></form>
-                    <form method="post" action="{{url('/modules/'.$module->id.'/request')}}">@csrf<input type="hidden" name="desired_access" value="paid"><button>Request paid access</button></form>
                 </div>
-                <small>No payment is taken here. We’ll confirm the price and agreement before activating paid access.</small>
+                <small>Trial requests go to Mento Software for review. Paid activation is arranged directly with us; checkout is not available in this portal.</small>
             @endif
             @if($latest && !$isPending && !$isEnabled)<span class="caption">Last request: {{ucfirst($latest->status)}}@if($latest->review_note) · {{$latest->review_note}}@endif</span>@endif
             @if($isTrial)<span class="caption">Trial access{{ $trialEnds ? ' · ends '.$trialEnds : '' }}</span>@endif
@@ -56,5 +62,5 @@
     </article>
 @endforeach
 </div>
-<section class="card"><div class="card-head"><div><h2>How module requests work</h2><p>Request a trial or paid access for the selected business. Mento Software reviews the request and confirms terms before Super Admin enables the module.</p></div></div><p class="caption">For an account with multiple businesses, switch businesses from the header to view pricing, access and requests separately. Prices are monthly estimates in GBP, before any applicable VAT; your agreed quote confirms the final amount.</p></section>
+<section class="card"><div class="card-head"><div><h2>How module requests work</h2><p>Request a trial for an add-on module. Mento Software reviews it before Super Admin enables access. Paid subscriptions are arranged directly with us; this portal does not take payment.</p></div></div><p class="caption">For an account with multiple businesses, switch businesses from the header to view pricing, access and trial requests separately. Prices are monthly estimates in GBP, before any applicable VAT; your agreed quote confirms the final amount.</p></section>
 @endsection

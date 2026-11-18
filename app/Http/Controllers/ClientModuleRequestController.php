@@ -17,8 +17,10 @@ class ClientModuleRequestController
         $activeEmployees = DB::table('users')->where('business_id', $businessId)->where('role', 'employee')->where('active', true)->count();
         $activeBranches = DB::table('branches')->where('business_id', $businessId)->where('active', true)->count();
         $corePlan = DB::table('module_pricing_settings')->where('id', 1)->first();
+        $profile = DB::table('client_profiles')->where('business_id', $businessId)->first();
+        $coreDiscountPercent = (int) ($profile->core_discount_percent ?? 0);
         $includedEmployees = (int) ($corePlan->included_employees ?? 5);
-        $modules = DB::table('modules')->orderBy('sort_order')->get();
+        $modules = DB::table('modules')->where('is_core', false)->where('code', '!=', 'reports_analytics')->orderBy('sort_order')->get();
         $pending = DB::table('client_module_requests')->where('business_id', $businessId)->where('status', 'pending')->pluck('module_id')->all();
         $latestRequestIds = DB::table('client_module_requests')->where('business_id', $businessId)->selectRaw('MAX(id)')->groupBy('module_id');
         $latestRequests = DB::table('client_module_requests')->where('business_id', $businessId)->whereIn('id', $latestRequestIds)
@@ -31,7 +33,7 @@ class ClientModuleRequestController
             ->pluck('m.id')->all();
         $entitlements = DB::table('business_modules')->where('business_id', $businessId)
             ->select('module_id', 'entitlement_type', 'ends_at')->get()->keyBy('module_id');
-        return view('client.modules', compact('business', 'businessId', 'activeEmployees', 'activeBranches', 'corePlan', 'includedEmployees', 'modules', 'pending', 'latestRequests', 'enabledIds', 'entitlements'));
+        return view('client.modules', compact('business', 'businessId', 'activeEmployees', 'activeBranches', 'corePlan', 'coreDiscountPercent', 'includedEmployees', 'modules', 'pending', 'latestRequests', 'enabledIds', 'entitlements'));
     }
 
     public function store(Request $request, int $moduleId)

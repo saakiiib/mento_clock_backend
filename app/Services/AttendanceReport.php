@@ -63,6 +63,26 @@ class AttendanceReport
             ];
         }
 
+        // V36: fetch rota shifts once per report rather than issuing a database
+        // query for every attendance record. Preserve the existing overlap and
+        // break selection calculations below.
+        $rotaByEmployee = collect();
+        if ($raw->isNotEmpty()) {
+            $rotaFrom = C::parse($raw->min('clock_in'), 'UTC');
+            $rotaTo = $raw->pluck('clock_out')->filter()->max();
+            $rotaTo = $raw->contains(fn ($row) => $row->clock_out === null)
+                ? C::now('UTC')
+                : ($rotaTo ? C::parse($rotaTo, 'UTC') : C::now('UTC'));
+            $rotaByEmployee = DB::table('rota_shifts')
+                ->where('business_id', $businessId)
+                ->whereIn('user_id', $raw->pluck('user_id')->unique()->values()->all())
+                ->where('status', '!=', 'draft')
+                ->where('starts_at', '<', $rotaTo->toDateTimeString())
+                ->where('ends_at', '>', $rotaFrom->toDateTimeString())
+                ->get(['user_id', 'branch_id', 'starts_at', 'ends_at', 'break_minutes'])
+                ->groupBy('user_id');
+        }
+
         $days = [];
         $grossTotal = $breakTotal = $active = $finalizedTotal = 0;
         $records = [];
@@ -83,13 +103,10 @@ class AttendanceReport
             // branch and cap the allowance at the elapsed attendance duration.
             $breakSeconds = 0;
             if ($actualSeconds > 0) {
-                $candidate = DB::table('rota_shifts')
-                    ->where('business_id', $businessId)->where('user_id', $row->user_id)
-                    ->where('status', '!=', 'draft')
-                    ->where('starts_at', '<', $actualEnd->toDateTimeString())
-                    ->where('ends_at', '>', $in->toDateTimeString())
-                    ->when($row->branch_id, fn ($query) => $query->where('branch_id', $row->branch_id))
-                    ->get(['starts_at', 'ends_at', 'break_minutes'])
+                $candidate = ($rotaByEmployee->get($row->user_id) ?? collect())
+                    ->filter(fn ($shift) => $shift->starts_at < $actualEnd->toDateTimeString()
+                        && $shift->ends_at > $in->toDateTimeString()
+                        && (!$row->branch_id || (int) $shift->branch_id === (int) $row->branch_id))
                     ->map(function ($shift) use ($in, $actualEnd) {
                         $shiftStart = C::parse($shift->starts_at, 'UTC');
                         $shiftEnd = C::parse($shift->ends_at, 'UTC');

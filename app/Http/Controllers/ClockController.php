@@ -107,7 +107,8 @@ class ClockController {
  public function logout(Request $r){$u=$r->user();$u?->currentAccessToken()?->delete();Log::info('User logged out', ['user_id' => $u?->id, 'business_id' => $u?->business_id, 'ip' => $r->ip()]);return response()->json(['message'=>'Signed out.']);}
  public function history(Request $r){
   $rows=DB::table('attendance_records')->where('business_id',$r->user()->business_id)->where('user_id',$r->user()->id)->where(function($q){$q->where('clock_in','>=',now('UTC')->subDays(93))->orWhereNull('clock_out');})->orderByDesc('clock_in')->get();
-  return response()->json(['data'=>$rows->map(function($a){$b=DB::table('branches')->where('id',$a->branch_id)->where('business_id',$a->business_id)->first();return ['id'=>(string)$a->id,'branch'=>['id'=>$b->id,'name'=>$b->name,'address'=>$b->address ?? '','location_required'=>(bool)$b->location_required],'clock_in'=>Carbon::parse($a->clock_in,'UTC')->toIso8601String(),'clock_out'=>$a->clock_out ? Carbon::parse($a->clock_out,'UTC')->toIso8601String():null];})]);
+  $branchMap=DB::table('branches')->where('business_id',$r->user()->business_id)->whereIn('id',$rows->pluck('branch_id')->unique())->get()->keyBy('id');
+  return response()->json(['data'=>$rows->map(function($a)use($branchMap){$b=$branchMap->get($a->branch_id);return ['id'=>(string)$a->id,'branch'=>['id'=>$b?->id,'name'=>$b?->name ?? 'Unavailable workplace','address'=>$b?->address ?? '','location_required'=>(bool)($b?->location_required ?? false)],'clock_in'=>Carbon::parse($a->clock_in,'UTC')->toIso8601String(),'clock_out'=>$a->clock_out ? Carbon::parse($a->clock_out,'UTC')->toIso8601String():null];})]);
  }
  private function location(Request $r,$branch): array {
   $v=$r->validate(['latitude'=>'nullable|numeric|between:-90,90','longitude'=>'nullable|numeric|between:-180,180','accuracy_m'=>'nullable|numeric|min:0|max:50','captured_at'=>'nullable|date']);
@@ -124,10 +125,25 @@ class ClockController {
   return $branch !== null && (bool)($branch->location_required ?? false);
  }
  private function ensureLocationIfRequired($branch, array $location): void {
-  if ($this->requiresLocation($branch) && $location['latitude'] === null) {
+  if ($this->requiresLocation($branch) && ($location['latitude'] === null || $location['longitude'] === null)) {
    throw ValidationException::withMessages([
     'location' => 'Location is required to clock in or out at this workplace. Enable location access and try again.',
    ]);
+  }
+ }
+ /**
+  * Enforce the existing client-admin branch checkbox. Keep clock-out enforcement
+  * separately gated during the V36 rollout so an employee already on shift is
+  * never stranded by a newly enforced geofence. Switch it on after field tests.
+  */
+ private function enforceGeofence($branch, array $location, bool $clockOut = false): void {
+  if (!$this->requiresLocation($branch)) return;
+  if (!isset($branch->latitude, $branch->longitude, $branch->radius_m) || (float)$branch->radius_m <= 0) {
+   throw ValidationException::withMessages(['location' => 'This workplace needs valid GPS coordinates and a radius. Please contact your manager.']);
+  }
+  if ($clockOut && !config('attendance.enforce_clock_out_geofence', false)) return;
+  if ($location['outside']) {
+   throw ValidationException::withMessages(['location' => 'You are outside the permitted workplace radius. Move closer to the workplace and try again, or contact your manager.']);
   }
  }
  private function isOnPublishedRota(User $user, object $branch, Carbon $now): bool {
@@ -156,6 +172,7 @@ class ClockController {
    }
    $v=$this->location($r,$branch);
    $this->ensureLocationIfRequired($branch,$v);
+   $this->enforceGeofence($branch,$v);
    $lat = $v['latitude'];
    $lng = $v['longitude'];
    $id=DB::table('attendance_records')->insertGetId(['business_id'=>$u->business_id,'user_id'=>$u->id,'branch_id'=>$branch->id,'clock_in'=>$utcNow,'in_lat'=>$lat,'in_lng'=>$lng,'created_at'=>$utcNow,'updated_at'=>$utcNow]);
@@ -180,6 +197,7 @@ class ClockController {
    if($a->clock_out)return response()->json(['message'=>'Already clocked out.']);
    $branch=DB::table('branches')->where('id',$a->branch_id)->where('business_id',$u->business_id)->first();$v=$this->location($r,$branch);
    $this->ensureLocationIfRequired($branch,$v);
+   $this->enforceGeofence($branch,$v,true);
    $lat = $v['latitude'];
    $lng = $v['longitude'];
    $utcNow=Carbon::now('UTC');DB::table('attendance_records')->where('id',$a->id)->update(['clock_out'=>$utcNow,'out_lat'=>$lat,'out_lng'=>$lng,'updated_at'=>$utcNow]);

@@ -32,9 +32,37 @@ class AttendanceTest extends TestCase {
   $attendanceId=DB::table('attendance_records')->value('id');
   $this->assertDatabaseHas('audit_logs',['attendance_id'=>$attendanceId,'action'=>'clock_in_off_rota']);
  }
-   public function test_location_outside_geofence_still_clocks_in(): void {
-   [$u,$b]=$this->account('a');$v=$this->gps($b);$v['latitude']=53;$v['confirm_off_rota']=true;$this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$v)->assertCreated()->assertJsonPath('outside',true);$this->assertDatabaseCount('attendance_records',1);
+   public function test_location_outside_geofence_is_rejected_when_enabled(): void {
+   [$u,$b]=$this->account('a');$v=$this->gps($b);$v['latitude']=53;$v['confirm_off_rota']=true;$this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$v)->assertUnprocessable()->assertJsonValidationErrors('location');$this->assertDatabaseCount('attendance_records',0);
   }
+ public function test_geofence_off_allows_outside_clock_in(): void {
+  [$u,$b]=$this->account('gps-optional');DB::table('branches')->where('id',$b)->update(['location_required'=>false]);
+  $v=$this->gps($b);$v['latitude']=53;
+  $this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$v)->assertCreated();
+  $this->assertDatabaseCount('attendance_records',1);
+ }
+ public function test_existing_open_shift_can_clock_out_outside_during_safe_rollout(): void {
+  [$u,$b]=$this->account('safe-clockout');
+  $this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$this->gps($b))->assertCreated();
+  $id=DB::table('attendance_records')->value('id');$v=$this->gps($b);$v['latitude']=53;
+  $this->postJson('/api/attendance/'.$id.'/clock-out',$v)->assertOk();
+  $this->assertNotNull(DB::table('attendance_records')->value('clock_out'));
+ }
+ public function test_strict_clock_out_can_be_enabled_after_rollout(): void {
+  [$u,$b]=$this->account('strict-clockout');
+  $this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$this->gps($b))->assertCreated();
+  $id=DB::table('attendance_records')->value('id');config()->set('attendance.enforce_clock_out_geofence',true);
+  $v=$this->gps($b);$v['latitude']=53;
+  $this->postJson('/api/attendance/'.$id.'/clock-out',$v)->assertUnprocessable()->assertJsonValidationErrors('location');
+  $this->assertNull(DB::table('attendance_records')->value('clock_out'));
+  $this->postJson('/api/attendance/'.$id.'/clock-out',$this->gps($b))->assertOk();
+ }
+ public function test_missing_geofence_configuration_gives_error_not_false_success(): void {
+  [$u,$b]=$this->account('bad-gps',false);
+  DB::table('branches')->where('id',$b)->update(['location_required'=>true]);
+  $this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',$this->gps($b))
+   ->assertUnprocessable()->assertJsonValidationErrors('location');
+ }
  public function test_clock_in_without_location_is_allowed_when_workplace_has_no_address(): void {
   [$u,$branch]=$this->account('a',false);
   $this->actingAs($u,'sanctum')->postJson('/api/attendance/clock-in',['branch_id'=>$branch,'confirm_off_rota'=>true])->assertCreated();

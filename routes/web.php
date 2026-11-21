@@ -112,6 +112,9 @@ Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalid
 
 // Platform accounts use an independent guard and have no employee/attendance API access.
 Route::prefix('platform')->middleware('platform.admin')->group(function(){
+ Route::get('/attendance-monitor',[\App\Http\Controllers\PlatformAttendanceMonitorController::class,'index']);
+ Route::post('/attendance-monitor/alerts/{id}/resolve',[\App\Http\Controllers\PlatformAttendanceMonitorController::class,'resolve'])->whereNumber('id');
+ Route::get('/attendance-monitor/health',[\App\Http\Controllers\PlatformAttendanceMonitorController::class,'health']);
  Route::get('/',[PlatformController::class,'index']);
  Route::get('/accounts',[ClientAccountController::class,'index']);
  Route::get('/accounts/create',[ClientAccountController::class,'create']);

@@ -1,11 +1,14 @@
 <?php
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AttendanceDiagnosticController;
 use App\Http\Controllers\{ClientApiController,ClockController,LeaveController,PasswordController,ReportController,RotaController,NoticeController};
 Route::post('auth/login',[ClockController::class,'login'])->middleware('throttle:mobile-login');
 Route::post('auth/forgot-password',[PasswordController::class,'forgot']);
 Route::middleware(['auth:sanctum','active.business'])->group(function(){
  Route::post('auth/logout',[ClockController::class,'logout']);Route::post('auth/change-password',[ClockController::class,'changePassword'])->middleware('throttle:6,1');Route::get('me',[ClockController::class,'me']);Route::post('profile',[ClockController::class,'profile']);
- Route::get('attendance',[ClockController::class,'history'])->middleware('module.enabled:attendance_tracking');Route::post('attendance/clock-in',[ClockController::class,'clockIn'])->middleware('module.enabled:attendance_tracking');Route::post('attendance/{id}/clock-out',[ClockController::class,'clockOut'])->whereNumber('id')->middleware('module.enabled:attendance_tracking');
+ Route::get('attendance/state',[AttendanceDiagnosticController::class,'state'])->middleware('module.enabled:attendance_tracking');
+ Route::post('attendance/diagnostics',[AttendanceDiagnosticController::class,'report'])->middleware(['module.enabled:attendance_tracking','throttle:6,1']);
+ Route::get('attendance',[ClockController::class,'history'])->middleware('module.enabled:attendance_tracking');Route::post('attendance/clock-in',[ClockController::class,'clockIn'])->middleware(['module.enabled:attendance_tracking',\App\Http\Middleware\RecordAttendanceAttempt::class]);Route::post('attendance/{id}/clock-out',[ClockController::class,'clockOut'])->whereNumber('id')->middleware(['module.enabled:attendance_tracking',\App\Http\Middleware\RecordAttendanceAttempt::class]);
  Route::get('reports',[ReportController::class,'employee'])->middleware('module.enabled:reports_analytics');
  Route::get('leave',[LeaveController::class,'mine'])->middleware('module.enabled:leave_management');
  Route::post('leave/preview',[LeaveController::class,'preview'])->middleware('module.enabled:leave_management');

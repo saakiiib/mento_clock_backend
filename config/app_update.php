@@ -27,6 +27,8 @@ return [
 
     'required' => filter_var(env('UPDATE_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
 
+    'message' => env('APP_UPDATE_MESSAGE', ''),
+
     'remind_later_hours' => (int) env('UPDATE_REMIND_LATER_HOURS', 24),
 
 ];

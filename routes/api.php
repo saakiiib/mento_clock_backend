@@ -1,7 +1,9 @@
 <?php
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AttendanceDiagnosticController;
+use App\Http\Controllers\AppUpdateController;
 use App\Http\Controllers\{ClientApiController,ClockController,LeaveController,PasswordController,ReportController,RotaController,NoticeController};
+Route::get('app/version',[AppUpdateController::class,'show'])->middleware('throttle:60,1');
 Route::post('auth/login',[ClockController::class,'login'])->middleware('throttle:mobile-login');
 Route::post('auth/forgot-password',[PasswordController::class,'forgot']);
 Route::middleware(['auth:sanctum','active.business'])->group(function(){

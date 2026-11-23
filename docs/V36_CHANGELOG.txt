@@ -1,0 +1,8 @@
+MentoClock Backend V36 (candidate)
+- Existing GPS-required checkbox now blocks out-of-range NEW clock-ins.
+- Clock-out outside-radius enforcement remains off during the transition to preserve open shifts; optional env flag later.
+- Mobile login throttle by account/IP.
+- Batch fetch attendance history branches and report rota shifts.
+- Added GPS regression tests and safe deployment manual.
+- No database migrations or live attendance modifications.
+IMPORTANT: staging tests required before production. See V36_RELEASE_NOTES_AND_SAFE_DEPLOYMENT.md.

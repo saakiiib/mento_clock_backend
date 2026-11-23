@@ -2,6 +2,11 @@
 use Illuminate\Support\Facades\{Route,Auth};
 use Illuminate\Http\Request;
 use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,ClientAccountController,ClientAccountSettingsController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController,ClientModuleRequestController,PlatformModuleController};
+Route::middleware(['auth:web','workspace.access'])->group(function(){
+ Route::get('/assistance',[\App\Http\Controllers\V38AssistanceController::class,'clientIndex']);
+ Route::post('/assistance/request',[\App\Http\Controllers\V38AssistanceController::class,'requestAssistance'])->middleware('throttle:5,1');
+ Route::post('/assistance/{session}/revoke',[\App\Http\Controllers\V38AssistanceController::class,'revoke'])->whereNumber('session');
+});
 Route::get('/login',function(){if(Auth::guard('platform')->check())return redirect('/platform');if(Auth::guard('web')->check())return redirect('/');return view('login');})->name('login');
 Route::post('/login',[AdminController::class,'login'])->middleware('throttle:5,1');
 Route::view('/forgot-password','auth.forgot')->name('password.request');
@@ -52,6 +57,7 @@ Route::middleware(['auth','active.business','workspace.access'])->group(function
  Route::post('/company/documents/{documentId}/delete',[OrganisationProfileController::class,'delete'])->whereNumber('documentId')->middleware('role.permission:organisation.manage');
  Route::post('/branches',[AdminController::class,'branch'])->middleware(['module.enabled:employee_management','role.permission:people.manage']);Route::get('/branches/{id}/edit',[AdminController::class,'editBranch'])->whereNumber('id')->middleware(['module.enabled:employee_management','role.permission:people.view']);Route::post('/branches/{id}/edit',[AdminController::class,'updateBranch'])->whereNumber('id')->middleware(['module.enabled:employee_management','role.permission:people.manage']);
  Route::post('/employees',[AdminController::class,'employee'])->middleware(['module.enabled:employee_management','role.permission:people.manage']);Route::get('/employees/{id}/edit',[AdminController::class,'editEmployee'])->whereNumber('id')->middleware(['module.enabled:employee_management','role.permission:people.sensitive.view']);Route::post('/employees/{id}/edit',[AdminController::class,'updateEmployee'])->whereNumber('id')->middleware(['module.enabled:employee_management','role.permission:people.manage']);
+ Route::get('/employees/{id}/workplaces',[\App\Http\Controllers\V38EmployeeWorkplaceController::class,'edit'])->whereNumber('id')->middleware(['module.enabled:employee_management','role.permission:people.manage']);
  Route::post('/employees/{id}/assignments',[AdminController::class,'assignments'])->whereNumber('id')->middleware(['module.enabled:employee_management','role.permission:people.manage']);Route::post('/employees/{id}/status',[AdminController::class,'toggle'])->whereNumber('id')->middleware(['module.enabled:employee_management','role.permission:people.manage']);Route::post('/attendance/{id}/correct',[AdminController::class,'correction'])->whereNumber('id')->middleware(['module.enabled:attendance_tracking','role.permission:attendance.correct']);
  Route::get('/reports',[ReportController::class,'index'])->middleware(['module.enabled:reports_analytics','role.permission:reports.view']);Route::get('/reports/download',[ReportController::class,'download'])->middleware(['module.enabled:reports_analytics','role.permission:reports.export']);Route::post('/reports/email',[ReportController::class,'email'])->middleware(['module.enabled:reports_analytics','role.permission:reports.export','throttle:3,1']);
  Route::get('/leave',[LeaveController::class,'index'])->middleware(['module.enabled:leave_management','role.permission:leave.view']);
@@ -112,6 +118,13 @@ Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalid
 
 // Platform accounts use an independent guard and have no employee/attendance API access.
 Route::prefix('platform')->middleware('platform.admin')->group(function(){
+ Route::get('/assist',[\App\Http\Controllers\V38AssistanceController::class,'platformIndex']);
+ Route::post('/assist/operators',[\App\Http\Controllers\V38AssistanceController::class,'operatorRole']);
+ Route::post('/assist/sessions/{session}/activate',[\App\Http\Controllers\V38AssistanceController::class,'activate'])->whereNumber('session');
+ Route::get('/assist/sessions/{session}',[\App\Http\Controllers\V38AssistanceController::class,'session'])->whereNumber('session');
+ Route::post('/assist/sessions/{session}/branch',[\App\Http\Controllers\V38AssistanceController::class,'createBranch'])->whereNumber('session');
+ Route::post('/assist/sessions/{session}/employee',[\App\Http\Controllers\V38AssistanceController::class,'createEmployee'])->whereNumber('session');
+ Route::post('/assist/sessions/{session}/assign/{employee}',[\App\Http\Controllers\V38AssistanceController::class,'assign'])->whereNumber('session')->whereNumber('employee');
  Route::get('/attendance-monitor',[\App\Http\Controllers\PlatformAttendanceMonitorController::class,'index']);
  Route::post('/attendance-monitor/alerts/{id}/resolve',[\App\Http\Controllers\PlatformAttendanceMonitorController::class,'resolve'])->whereNumber('id');
  Route::get('/attendance-monitor/health',[\App\Http\Controllers\PlatformAttendanceMonitorController::class,'health']);

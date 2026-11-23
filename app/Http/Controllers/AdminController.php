@@ -49,6 +49,22 @@ class AdminController {
   $business=DB::table('businesses')->find($id);
   $branches=DB::table('branches')->where('business_id',$id)->get()->map(function($branch)use($id){$branch->employee_count=$this->capacity->activeEmployeeCount($id,(int)$branch->id);$branch->employee_limit=$this->capacity->employeeLimit($id,(int)$branch->id);return $branch;});
   $employees=User::where('business_id',$id)->get(['id','name','email','role','active','job_title','employee_code']);
+  $peopleResults=null;$peopleFilters=[];
+  if($r->path()==='people'){
+   $peopleFilters=$r->validate(['q'=>'nullable|string|max:100','branch_id'=>'nullable|integer','status'=>'nullable|in:active,inactive,all']);
+   $peopleQuery=User::query()->where('business_id',$id)->where('role','employee');
+   if(filled($peopleFilters['q']??null)){
+    $needle=str_replace(['\\','%','_'],['\\\\','\\%','\\_'],trim($peopleFilters['q']));
+    $peopleQuery->where(fn($q)=>$q->where('name','like','%'.$needle.'%')->orWhere('email','like','%'.$needle.'%')->orWhere('employee_code','like','%'.$needle.'%'));
+   }
+   if(filled($peopleFilters['branch_id']??null)){
+    abort_unless(DB::table('branches')->where('business_id',$id)->where('id',(int)$peopleFilters['branch_id'])->exists(),422);
+    $peopleQuery->whereIn('id',DB::table('employee_branches')->where('business_id',$id)->where('branch_id',(int)$peopleFilters['branch_id'])->select('user_id'));
+   }
+   if(($peopleFilters['status']??'all')!=='all')$peopleQuery->where('active',$peopleFilters['status']==='active');
+   $peopleResults=$peopleQuery->orderBy('name')->paginate(25)->withQueryString();
+  }
+
   $records=DB::table('attendance_records as a')->join('users as u','u.id','=','a.user_id')->join('branches as b','b.id','=','a.branch_id')->where('a.business_id',$id)->orderByDesc('a.clock_in')->select('a.*','u.name as employee','b.name as branch')->limit(200)->get();
   $section=in_array($r->path(),['people','workplaces','attendance'])?$r->path():'overview';
   $assigned=DB::table('employee_branches')->where('business_id',$id)->get()->groupBy('user_id')->map(fn($rows)=>$rows->pluck('branch_id')->all());
@@ -107,7 +123,7 @@ class AdminController {
    if(in_array($code,['employee_management','attendance_tracking','leave_management','rota_shifts','compliance_tracking','company_notices','employee_lifecycle','hr_reminders'],true))$overviewStats[]=['title'=>$module['title'],'count'=>$module['count'],'unit'=>$module['unit'],'icon'=>$module['icon'],'href'=>$module['href'],'attention'=>in_array($code,['leave_management','compliance_tracking','company_notices','hr_reminders'],true)&&$module['count']>0];
   }
   if($permissions->has($r->user(),'organisation.view'))$overviewModules[]=['code'=>'organisation_profile','title'=>'Organisation profile','description'=>'Keep your legal details, contacts, working hours and business documents up to date.','href'=>'/company','icon'=>'building','count'=>$organisationProfileCompletion,'unit'=>'% complete'];
-  return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile','overviewModules','overviewStats','pendingLeaveCount','upcomingShiftCount','upcomingHolidayCount','complianceDueCount','unacknowledgedNoticeCount','organisationProfileCompletion','canManagePeople','canViewPrivatePeople','canCorrectAttendance','canViewAttendance','canViewReports','canViewLeave','canViewRota','canViewCompliance','canViewNotices','canViewOrganisation'));
+  return view('dashboard',compact('business','branches','employees','records','section','assigned','todayReport','weekReport','workingCount','profile','overviewModules','overviewStats','pendingLeaveCount','upcomingShiftCount','upcomingHolidayCount','complianceDueCount','unacknowledgedNoticeCount','organisationProfileCompletion','canManagePeople','canViewPrivatePeople','canCorrectAttendance','canViewAttendance','canViewReports','canViewLeave','canViewRota','canViewCompliance','canViewNotices','canViewOrganisation','peopleResults','peopleFilters')); 
  }
  private function employeeProfileRules(int $businessId): array {
   $authority=Rule::exists('users','id')->where('business_id',$businessId)->where('active',true);
@@ -252,6 +268,8 @@ class AdminController {
   try{DB::transaction(function()use($employee,$business,$v,$payload,$r,$document,$documentPath,$branchIds){
    DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$employee->id)->lockForUpdate()->firstOrFail();
    if($current->active)$this->capacity->ensureEmployeeAssignments($business,$branchIds,$current->id);
+   $openBranches=DB::table('attendance_records')->where('business_id',$business)->where('user_id',$current->id)->whereNull('clock_out')->pluck('branch_id')->all();
+   abort_if(array_diff($openBranches,$branchIds),422,'Cannot remove the workplace of an active shift. Clock out first.');
    $current->update($payload);if(!empty($v['password']))$current->update(['password'=>$v['password']]);$current->tokens()->delete();
    DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();
    foreach($branchIds as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);
@@ -267,7 +285,14 @@ class AdminController {
  public function assignments(Request $r,$id){
   $business=$this->business($r);$u=User::where('business_id',$business)->findOrFail($id);
   $v=$r->validate(['branches'=>'required|array|min:1','branches.*'=>['integer',Rule::exists('branches','id')->where('business_id',$business)->where('active',true)]]);
-  DB::transaction(function()use($u,$business,$v){DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$u->id)->lockForUpdate()->firstOrFail();if($current->active)$this->capacity->ensureEmployeeAssignments($business,$v['branches'],$current->id);$current->tokens()->delete();DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();foreach(array_unique($v['branches'])as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);});return back()->with('status','Branch assignments updated. Employee should sign in again to refresh their branches.');
+  DB::transaction(function()use($u,$business,$v){DB::table('businesses')->where('id',$business)->lockForUpdate()->firstOrFail();$current=User::where('business_id',$business)->where('id',$u->id)->lockForUpdate()->firstOrFail();if($current->active)$this->capacity->ensureEmployeeAssignments($business,$v['branches'],$current->id);
+   $openBranches=DB::table('attendance_records')->where('business_id',$business)->where('user_id',$current->id)->whereNull('clock_out')->pluck('branch_id')->all();
+   $before=DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->pluck('branch_id')->map(fn($i)=>(int)$i)->sort()->values()->all();
+   $after=collect($v['branches'])->map(fn($i)=>(int)$i)->unique()->sort()->values()->all();
+   abort_if($openBranches && $before!==$after,422,'Employee has an active shift. Change their workplace after clock-out to avoid interrupting their session.');
+   if($before===$after)return;
+   $current->tokens()->delete();DB::table('employee_branches')->where('business_id',$business)->where('user_id',$current->id)->delete();foreach($after as $b)DB::table('employee_branches')->insert(['business_id'=>$business,'user_id'=>$current->id,'branch_id'=>$b]);
+   DB::table('hr_module_events')->insert(['business_id'=>$business,'actor_id'=>auth()->id(),'subject_type'=>'employee','subject_id'=>$current->id,'action'=>'workplaces_changed','details'=>json_encode(['before'=>$before,'after'=>$after],JSON_THROW_ON_ERROR),'created_at'=>now('UTC')]);});return back()->with('status','Branch assignments updated. Employee should sign in again to refresh their branches.');
  }
  public function toggle(Request $r,$id){
   $business=$this->business($r);abort_if((int)$id===$r->user()->id,422,'You cannot deactivate yourself.');

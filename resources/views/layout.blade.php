@@ -4,6 +4,7 @@ $viewer = $platform ? auth('platform')->user() : auth()->user();
 $workspaceName = $platform ? 'Mento Software' : (DB::table('businesses')->where('id',$viewer->business_id)->value('name') ?? 'Your workspace');
 $workspaceLogo = !$platform ? DB::table('client_organisation_documents')->where('business_id',$viewer->business_id)->where('category','logo')->whereNull('archived_at')->value('id') : null;
 $viewerRole = $platform ? 'Super administrator' : ($viewer->role === 'admin' ? 'Business administrator' : (DB::table('business_roles')->where('business_id',$viewer->business_id)->where('id',$viewer->business_role_id)->value('name') ?? 'Employee'));
+$isSupportOperator = $platform && DB::table('platform_support_operators')->where('admin_id', $viewer->id)->exists();
 $links = $platform ? [
  ['/platform','home','Platform overview',request()->is('platform')],
  ['/platform','building','Clients',request()->is('platform/clients*')],
@@ -13,6 +14,7 @@ $links = $platform ? [
  ['/platform/module-catalogue','report','Module pricing',request()->is('platform/module-catalogue*')],
  ['/platform/admins','people','Super Admin accounts',request()->is('platform/admins*')],
  ['/platform/support','people','Employee support',request()->is('platform/support*')],
+ ['/platform/assist','people','Client assistance',request()->is('platform/assist*')],
  ['/platform/trial-requests','report','Trial requests',request()->is('platform/trial-requests*')],
  ['/platform/general-enquiries','report','General enquiries',request()->is('platform/general-enquiries*')],
  ['/platform/website','report','Website content',request()->is('platform/website*')],
@@ -20,6 +22,7 @@ $links = $platform ? [
 ] : [
  ['/','home','Overview',request()->is('/')],
  ['/people','people','Your people',request()->is('people','employees*')],
+ ['/assistance','shield','Request support',request()->is('assistance*')],
  ['/workplaces','shop','Workplaces',request()->is('workplaces','branches*')],
  ['/attendance','clock','Attendance',request()->is('attendance')],
  ['/reports','report','Reports',request()->is('reports*')],
@@ -36,6 +39,7 @@ $links = $platform ? [
  ['/documents','report','Documents',request()->is('documents*')],
  ['/company','building','Organisation profile',request()->is('company')],
 ];
+if ($isSupportOperator) $links = array_values(array_filter($links, fn($link)=>in_array($link[0],['/platform/assist','/platform/security'],true)));
 if (!$platform) {
     if ($viewer->role === 'admin' && $viewer->client_account_id) {
         $links[] = ['/account','people','Account settings',request()->is('account')];

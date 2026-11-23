@@ -17,6 +17,13 @@ class PlatformAdminOnly
             $request->session()->forget('platform_version');
             return redirect()->route('login')->with('status', 'Please sign in again. Your administrator session has changed.');
         }
+        // Support operators are deliberately not Super Admins. Prevent lateral
+        // access to billing, admin accounts, client management, or other platform URLs.
+        if (\Illuminate\Support\Facades\DB::table('platform_support_operators')->where('admin_id', $admin->id)->exists()) {
+            $path = $request->path();
+            if ($path === 'platform') return redirect('/platform/assist');
+            abort_unless($path === 'platform/assist' || str_starts_with($path, 'platform/assist/') || in_array($path, ['platform/logout', 'platform/security'], true), 403);
+        }
         return $next($request);
     }
 }

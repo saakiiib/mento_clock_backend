@@ -169,7 +169,11 @@ class V38AssistanceController
     private function renderAssistance(int $id,bool $standing)
     {
         $s=$this->assistedScope($id,$standing);$bid=(int)$s->business_id;
-        $business=DB::table('businesses')->findOrFail($bid);
+        $business = DB::table('businesses')
+            ->where('id', $bid)
+            ->first();
+
+        abort_unless($business, 404, 'Business not found.');
         if ($standing) {
             DB::table('client_standing_support_events')->insert([
                 'authorization_id'=>$s->authorization_id,'business_id'=>$bid,

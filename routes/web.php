@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\{AdminController,DocumentManagementController,EmployeeLifecycleController,HrReportController,LeaveController,MarketingAdminController,MarketingSiteController,PasswordController,ReportController,PlatformController,PlatformAdminManagementController,PlatformSupportController,ClientAccountController,ClientAccountSettingsController,RotaController,OrganisationProfileController,ComplianceController,NoticeController,ReminderController,RolePermissionController,ClientModuleRequestController,PlatformModuleController};
 Route::middleware(['auth:web','workspace.access'])->group(function(){
  Route::get('/assistance',[\App\Http\Controllers\V38AssistanceController::class,'clientIndex']);
+ Route::post('/assistance/standing-access',[\App\Http\Controllers\V38AssistanceController::class,'standingAccess'])->middleware('throttle:5,1');
  Route::post('/assistance/request',[\App\Http\Controllers\V38AssistanceController::class,'requestAssistance'])->middleware('throttle:5,1');
  Route::post('/assistance/{session}/revoke',[\App\Http\Controllers\V38AssistanceController::class,'revoke'])->whereNumber('session');
 });
@@ -119,6 +120,10 @@ Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalid
 // Platform accounts use an independent guard and have no employee/attendance API access.
 Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::get('/assist',[\App\Http\Controllers\V38AssistanceController::class,'platformIndex']);
+ Route::get('/assist/manage/{business}',[\App\Http\Controllers\V38AssistanceController::class,'manage'])->whereNumber('business');
+ Route::post('/assist/manage/{business}/branch',[\App\Http\Controllers\V38AssistanceController::class,'standingBranch'])->whereNumber('business');
+ Route::post('/assist/manage/{business}/employee',[\App\Http\Controllers\V38AssistanceController::class,'standingEmployee'])->whereNumber('business');
+ Route::post('/assist/manage/{business}/assign/{employee}',[\App\Http\Controllers\V38AssistanceController::class,'standingAssign'])->whereNumber('business')->whereNumber('employee');
  Route::post('/assist/operators',[\App\Http\Controllers\V38AssistanceController::class,'operatorRole']);
  Route::post('/assist/sessions/{session}/activate',[\App\Http\Controllers\V38AssistanceController::class,'activate'])->whereNumber('session');
  Route::get('/assist/sessions/{session}',[\App\Http\Controllers\V38AssistanceController::class,'session'])->whereNumber('session');

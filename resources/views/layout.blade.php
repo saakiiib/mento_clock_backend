@@ -17,7 +17,8 @@ $links = $platform ? [
  ['/platform/assist','people','Client assistance',request()->is('platform/assist*')],
  ['/platform/trial-requests','report','Trial requests',request()->is('platform/trial-requests*')],
  ['/platform/general-enquiries','report','General enquiries',request()->is('platform/general-enquiries*')],
- ['/platform/website','report','Website content',request()->is('platform/website*')],
+ ['/platform/website','report','Website content',request()->is('platform/website')],
+ ['/platform/website/seo','report','SEO & growth',request()->is('platform/website/seo*')],
  ['/platform/security','shield','Account security',request()->is('platform/security')],
 ] : [
  ['/','home','Overview',request()->is('/')],

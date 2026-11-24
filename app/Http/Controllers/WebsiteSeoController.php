@@ -1,0 +1,12 @@
+<?php
+namespace App\Http\Controllers;
+use App\Support\{MarketingSite,WebsiteSeo};
+use Illuminate\Support\Facades\DB;
+class WebsiteSeoController {
+ public function index(string $kind){$s=MarketingSite::settings();$title=WebsiteSeo::KINDS[$kind].' | MentoClock';return $this->render('marketing.seo-index',['s'=>$s,'kind'=>$kind,'title'=>$title,'description'=>'Explore MentoClock '.strtolower(WebsiteSeo::KINDS[$kind]).' for UK businesses.','canonicalPath'=>'/'.$kind,'pages'=>WebsiteSeo::pages()->where('kind',$kind)->get()]);}
+ public function show(string $kind,string $slug){$path='/'.$kind.'/'.$slug;$page=DB::table('website_seo_pages')->where('kind',$kind)->where('slug',$slug)->where('published',true)->first();if(!$page){$dest=DB::table('website_seo_redirects')->where('source',$path)->value('destination');if($dest && $this->isLive($dest))return redirect($dest,301);abort(404);} $s=MarketingSite::settings();$title=$page->seo_title;return $this->render('marketing.seo-page',['s'=>$s,'page'=>$page,'kind'=>$kind,'title'=>$title,'description'=>$page->description,'canonicalPath'=>$path,'canonicalOverride'=>$page->canonical,'noindex'=>!$page->indexable,'socialTitle'=>$page->social_title,'socialDescription'=>$page->social_description,'socialImage'=>$page->social_image,'related'=>WebsiteSeo::pages()->where('id','!=',$page->id)->orderBy('kind')->limit(6)->get()]);}
+ private function isLive(string $path): bool { $parts=explode('/',trim($path,'/')); return count($parts)===2 && DB::table('website_seo_pages')->where('kind',$parts[0])->where('slug',$parts[1])->where('published',true)->exists(); }
+ private function render(string $view,array $data){return MarketingSiteController::secure(response()->view($view,$data));}
+ public function sitemap(){ $s=MarketingSite::settings();$base=WebsiteSeo::base($s);$urls=[];foreach(['/','/privacy','/terms','/cookies','/features','/industries','/blog'] as $path)$urls[]=['loc'=>$base.$path];foreach(WebsiteSeo::pages()->get() as $p){$url=$base.WebsiteSeo::path($p);if($p->canonical && $p->canonical!==$url)continue;$urls[]=['loc'=>$url,'lastmod'=>substr($p->updated_at,0,10)];}return response()->view('marketing.sitemap',['urls'=>$urls])->header('Content-Type','application/xml; charset=UTF-8'); }
+ public function robots(){return response("User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /platform\nDisallow: /admin\nSitemap: ".WebsiteSeo::base(MarketingSite::settings())."/sitemap.xml\n",200,['Content-Type'=>'text/plain; charset=UTF-8']);}
+}

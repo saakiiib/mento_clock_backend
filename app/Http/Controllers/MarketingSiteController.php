@@ -34,7 +34,7 @@ class MarketingSiteController
         $titles = ['privacy' => 'Privacy notice', 'terms' => 'Website terms', 'cookies' => 'Cookie policy'];
         $title = $titles[$page].' | MentoClock';
         return $this->secure(response()->view('marketing.legal', [
-            's' => $s, 'title' => $title, 'page' => $page, 'canonicalPath' => '/'.$page, 'description' => $titles[$page].' for the MentoClock website and services.',
+            's' => $s, 'title' => $title, 'page' => $page, 'canonicalPath' => '/'.$page,
         ]));
     }
 
@@ -181,23 +181,18 @@ class MarketingSiteController
             's' => MarketingSite::settings(),
             'title' => 'Trial request received | MentoClock',
             'canonicalPath' => '/',
-            'noindex' => true,
             'firstName' => explode(' ', $name)[0] ?? $name,
             'whatsappUrl' => $whatsappUrl,
-        ]))->header('X-Robots-Tag','noindex, nofollow')->header('Cache-Control','private, no-store');
+        ]));
     }
 
-    public static function secure(\Illuminate\Http\Response $response): \Illuminate\Http\Response
+    private function secure(\Illuminate\Http\Response $response): \Illuminate\Http\Response
     {
-        $hashes = '';
-        if (preg_match_all('~<script type="application/ld\+json">(.*?)</script>~s', $response->getContent(), $matches)) {
-            foreach ($matches[1] as $json) $hashes .= " 'sha256-".base64_encode(hash('sha256', $json, true))."'";
-        }
         return $response->withHeaders([
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
             'Referrer-Policy' => 'strict-origin-when-cross-origin',
-            'Content-Security-Policy' => "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'{$hashes}; font-src 'self'; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+            'Content-Security-Policy' => "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
         ]);
     }
 }

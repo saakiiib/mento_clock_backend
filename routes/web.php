@@ -31,10 +31,6 @@ Route::get('/',function(Request $request){
  }
  return app(MarketingSiteController::class)->index($request);
 });
-Route::get('/sitemap.xml',[\App\Http\Controllers\WebsiteSeoController::class,'sitemap']);
-Route::get('/robots.txt',[\App\Http\Controllers\WebsiteSeoController::class,'robots']);
-Route::get('/{kind}',[\App\Http\Controllers\WebsiteSeoController::class,'index'])->whereIn('kind',['features','industries','blog']);
-Route::get('/{kind}/{slug}',[\App\Http\Controllers\WebsiteSeoController::class,'show'])->whereIn('kind',['features','industries','blog'])->where('slug','[a-z0-9]+(?:-[a-z0-9]+)*');
 Route::get('/privacy',[MarketingSiteController::class,'legal'])->defaults('page','privacy');
 Route::get('/terms',[MarketingSiteController::class,'legal'])->defaults('page','terms');
 Route::get('/cookies',[MarketingSiteController::class,'legal'])->defaults('page','cookies');
@@ -46,6 +42,9 @@ Route::post('/trial-request',[MarketingSiteController::class,'trialRequest'])->m
 Route::get('/admin',fn()=>redirect('/platform/website'));
 Route::get('/admin/{any}',fn()=>redirect('/platform/website'))->where('any','.*');
 Route::middleware(['auth','active.business','workspace.access'])->group(function(){
+ Route::get('/notifications',[\App\Http\Controllers\V39NotificationController::class,'clientIndex']);
+ Route::get('/notifications/targets',[\App\Http\Controllers\V39NotificationController::class,'clientTargets']);
+ Route::post('/notifications',[\App\Http\Controllers\V39NotificationController::class,'clientStore'])->middleware('throttle:10,1');
  Route::get('/modules',[ClientModuleRequestController::class,'index']);
  Route::get('/account',[ClientAccountSettingsController::class,'index']);
  Route::post('/account',[ClientAccountSettingsController::class,'update'])->middleware('throttle:5,1');
@@ -123,6 +122,9 @@ Route::post('/logout',function(Request $r){Auth::logout();$r->session()->invalid
 
 // Platform accounts use an independent guard and have no employee/attendance API access.
 Route::prefix('platform')->middleware('platform.admin')->group(function(){
+ Route::get('/notifications',[\App\Http\Controllers\V39NotificationController::class,'platformIndex']);
+ Route::get('/notifications/targets',[\App\Http\Controllers\V39NotificationController::class,'platformTargets']);
+ Route::post('/notifications',[\App\Http\Controllers\V39NotificationController::class,'platformStore'])->middleware('throttle:10,1');
  Route::get('/assist',[\App\Http\Controllers\V38AssistanceController::class,'platformIndex']);
  Route::get('/assist/manage/{business}',[\App\Http\Controllers\V38AssistanceController::class,'manage'])->whereNumber('business');
  Route::post('/assist/manage/{business}/branch',[\App\Http\Controllers\V38AssistanceController::class,'standingBranch'])->whereNumber('business');
@@ -180,13 +182,6 @@ Route::prefix('platform')->middleware('platform.admin')->group(function(){
  Route::post('/clients/{id}/pricing',[PlatformController::class,'updatePricing'])->whereNumber('id')->middleware('throttle:10,1');
  Route::post('/clients/{id}/branches/{branchId}/capacity',[PlatformController::class,'branchCapacity'])->whereNumber('id')->whereNumber('branchId');
  Route::post('/clients/{id}/branches/{branchId}/status',[PlatformController::class,'branchStatus'])->whereNumber('id')->whereNumber('branchId');
- Route::get('/website/seo',[\App\Http\Controllers\WebsiteSeoAdminController::class,'index']);
- Route::post('/website/seo/settings',[\App\Http\Controllers\WebsiteSeoAdminController::class,'settings']);
- Route::get('/website/seo/pages/create',[\App\Http\Controllers\WebsiteSeoAdminController::class,'edit']);
- Route::get('/website/seo/pages/{id}',[\App\Http\Controllers\WebsiteSeoAdminController::class,'edit'])->whereNumber('id');
- Route::post('/website/seo/pages/{id?}',[\App\Http\Controllers\WebsiteSeoAdminController::class,'save'])->whereNumber('id');
- Route::post('/website/seo/redirects',[\App\Http\Controllers\WebsiteSeoAdminController::class,'redirectSave']);
- Route::post('/website/seo/redirects/{id}/delete',[\App\Http\Controllers\WebsiteSeoAdminController::class,'redirectDelete'])->whereNumber('id');
  Route::get('/website',[MarketingAdminController::class,'index']);
  Route::post('/website/settings',[MarketingAdminController::class,'updateSettings']);
  Route::post('/website/content',[MarketingAdminController::class,'saveContent']);

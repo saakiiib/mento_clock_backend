@@ -5,6 +5,13 @@ use App\Http\Controllers\{ClientApiController,ClockController,LeaveController,Pa
 Route::post('auth/login',[ClockController::class,'login'])->middleware('throttle:mobile-login');
 Route::post('auth/forgot-password',[PasswordController::class,'forgot']);
 Route::middleware(['auth:sanctum','active.business'])->group(function(){
+ Route::get('notifications',[\App\Http\Controllers\V39NotificationController::class,'inbox']);
+ Route::post('notifications/feedback',[\App\Http\Controllers\V39NotificationController::class,'feedback'])->middleware('throttle:3,1');
+ Route::post('notifications/{id}/read',[\App\Http\Controllers\V39NotificationController::class,'read'])->whereNumber('id')->middleware('throttle:60,1');
+ Route::post('notifications/{id}/acknowledge',[\App\Http\Controllers\V39NotificationController::class,'acknowledge'])->whereNumber('id')->middleware('throttle:60,1');
+ Route::post('notifications/{id}/complete',[\App\Http\Controllers\V39NotificationController::class,'complete'])->whereNumber('id')->middleware('throttle:60,1');
+ Route::post('notifications/device',[\App\Http\Controllers\V39NotificationController::class,'device'])->middleware('throttle:10,1');
+ Route::delete('notifications/device',[\App\Http\Controllers\V39NotificationController::class,'removeDevice'])->middleware('throttle:10,1');
  Route::post('auth/logout',[ClockController::class,'logout']);Route::post('auth/change-password',[ClockController::class,'changePassword'])->middleware('throttle:6,1');Route::get('me',[ClockController::class,'me']);Route::post('profile',[ClockController::class,'profile']);
  Route::get('attendance/state',[AttendanceDiagnosticController::class,'state'])->middleware('module.enabled:attendance_tracking');
  Route::post('attendance/diagnostics',[AttendanceDiagnosticController::class,'report'])->middleware(['module.enabled:attendance_tracking','throttle:6,1']);

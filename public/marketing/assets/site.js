@@ -53,7 +53,7 @@ document.querySelectorAll('[data-billing]').forEach(button=>button.addEventListe
 
 const trialDialog=document.querySelector('#trial-dialog');
 const openTrial=()=>{if(trialDialog&&!trialDialog.open)trialDialog.showModal();};
-document.querySelectorAll('[data-open-trial]').forEach(button=>button.addEventListener('click',event=>{if(trialDialog){event.preventDefault();openTrial();}}));
+document.querySelectorAll('[data-open-trial]').forEach(button=>button.addEventListener('click',event=>{event.preventDefault();openTrial();}));
 document.querySelectorAll('[data-close-trial]').forEach(button=>button.addEventListener('click',()=>trialDialog?.close()));
 trialDialog?.addEventListener('click',event=>{if(event.target===trialDialog)trialDialog.close();});
 if(trialDialog&&location.hash==='#trial-request')openTrial();

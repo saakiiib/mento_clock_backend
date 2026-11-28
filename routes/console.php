@@ -45,3 +45,7 @@ Schedule::call(function(){DB::table('attendance_attempt_events')->where('created
  DB::table('employee_diagnostic_reports')->where('created_at','<',now('UTC')->subDays(90))->delete();
  DB::table('attendance_incident_alerts')->whereNotNull('resolved_at')->where('created_at','<',now('UTC')->subDays(180))->delete();
 })->daily()->name('attendance:prune-monitoring')->withoutOverlapping();
+
+// V39: requires server cron: * * * * * php artisan schedule:run
+\Illuminate\Support\Facades\Schedule::command('v39:publish-due')->everyMinute()->withoutOverlapping();
+\Illuminate\Support\Facades\Schedule::command('v39:push-pending')->everyMinute()->withoutOverlapping();
